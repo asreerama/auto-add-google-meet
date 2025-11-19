@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body {
+            width: 300px;
+            padding: 20px;
+            font-family: 'Google Sans', Roboto, Arial, sans-serif;
+            margin: 0;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .logo {
+            width: 48px;
+            height: 48px;
+            margin: 0 auto 10px;
+            background-color: #1a73e8;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 24px;
+        }
+        
+        h1 {
+            font-size: 18px;
+            font-weight: 500;
+            color: #202124;
+            margin: 0;
+        }
+        
+        .description {
+            color: #5f6368;
+            font-size: 14px;
+            line-height: 1.4;
+            margin-bottom: 20px;
+        }
+        
+        .feature {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: #202124;
+        }
+        
+        .feature-icon {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            color: #1a73e8;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid #dadce0;
+            font-size: 12px;
+            color: #5f6368;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">📹</div>
+        <h1>Google Meet Auto-Add</h1>
+    </div>
+    
+    <div class="description">
+        Never forget to add video conferencing to your Google Calendar events again!
+    </div>
+    
+    <div class="features">
+        <div class="feature">
+            <div class="feature-icon">✓</div>
+            <span>One-click Google Meet integration</span>
+        </div>
+        <div class="feature">
+            <div class="feature-icon">✓</div>
+            <span>Works with new and existing events</span>
+        </div>
+        <div class="feature">
+            <div class="feature-icon">✓</div>
+            <span>Matches Google Calendar's design</span>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p>Visit <a href="https://calendar.google.com" target="_blank">Google Calendar</a> to get started!</p>
+        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
+            <button id="force-check-btn" style="background: #f1f3f4; border: 1px solid #dadce0; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; color: #3c4043;">
+                Force Check / Debug
+            </button>
+            <div id="status" style="margin-top: 5px; font-size: 11px; color: #137333; min-height: 14px;"></div>
+        </div>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>
