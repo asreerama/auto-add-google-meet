@@ -319,50 +319,6 @@
         return null;
     }
 
-    function createMeetButton(styles = {}) {
-        const button = document.createElement('button');
-        button.id = CONFIG.buttonId;
-        button.className = 'google-meet-auto-add-button';
-        button.textContent = CONFIG.buttonText;
-        button.type = 'button';
-
-        // Use copied styles or defaults
-        const bgColor = styles.backgroundColor || '#0b57d0';
-        const height = styles.height || '36px';
-        const fontFamily = styles.fontFamily || "'Google Sans', Roboto, Arial, sans-serif";
-
-        button.style.cssText = `
-            background-color: ${bgColor};
-            color: white;
-            border: none;
-            border-radius: 100px;
-            padding: 0 24px;
-            font-family: ${fontFamily};
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: background-color 0.2s;
-            margin: 0 8px;
-            white-space: nowrap;
-            height: ${height};
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-        `;
-
-        // Hover effect (slightly darken the dynamic color)
-        button.addEventListener('mouseenter', () => {
-            button.style.filter = 'brightness(0.9)';
-        });
-        button.addEventListener('mouseleave', () => {
-            button.style.filter = 'none';
-        });
-
-        button.addEventListener('click', handleMeetButtonClick);
-
-        return button;
-    }
-
     function isVisible(element) {
         return element.offsetParent !== null &&
             window.getComputedStyle(element).display !== 'none' &&
@@ -391,6 +347,147 @@
         return null;
     }
 
+    function getVisualStyles(element) {
+        const style = window.getComputedStyle(element);
+
+        // 1. Robust Border Extraction
+        // Shorthand 'border' often returns empty string in computed styles
+        let border = style.border;
+        if (!border || border === '') {
+            if (style.borderStyle && style.borderStyle !== 'none') {
+                border = `${style.borderWidth} ${style.borderStyle} ${style.borderColor}`;
+            } else {
+                border = 'none';
+            }
+        }
+
+        // 2. Robust Text Color & Font Extraction
+        // Text styles are often on a child <span> (common in Google Material buttons)
+        let color = style.color;
+        let fontFamily = style.fontFamily;
+        let fontSize = style.fontSize;
+        let fontWeight = style.fontWeight;
+        let letterSpacing = style.letterSpacing;
+        let textTransform = style.textTransform;
+
+        // Find the deepest child that likely contains the text
+        // This ensures we get the color of the text, not the button container
+        const findTextWrapper = (el) => {
+            if (el.children.length === 0 && el.textContent.trim().length > 0) return el;
+            for (const child of el.children) {
+                const found = findTextWrapper(child);
+                if (found) return found;
+            }
+            return null;
+        };
+
+        const textWrapper = findTextWrapper(element);
+        if (textWrapper) {
+            const wrapperStyle = window.getComputedStyle(textWrapper);
+            color = wrapperStyle.color;
+            fontFamily = wrapperStyle.fontFamily;
+            fontSize = wrapperStyle.fontSize;
+            fontWeight = wrapperStyle.fontWeight;
+            letterSpacing = wrapperStyle.letterSpacing;
+            textTransform = wrapperStyle.textTransform;
+        }
+
+        return {
+            backgroundColor: style.backgroundColor,
+            height: style.height,
+            padding: style.padding,
+            borderRadius: style.borderRadius,
+            boxShadow: style.boxShadow,
+            border: border,
+            color: color,
+            fontFamily: fontFamily,
+            fontSize: fontSize,
+            fontWeight: fontWeight,
+            letterSpacing: letterSpacing,
+            textTransform: textTransform,
+            cursor: style.cursor,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+        };
+    }
+
+    function createRipple(event) {
+        const button = event.currentTarget;
+        const circle = document.createElement('span');
+        const diameter = Math.max(button.clientWidth, button.clientHeight);
+        const radius = diameter / 2;
+
+        const rect = button.getBoundingClientRect();
+
+        circle.style.width = circle.style.height = `${diameter}px`;
+        circle.style.left = `${event.clientX - rect.left - radius}px`;
+        circle.style.top = `${event.clientY - rect.top - radius}px`;
+        circle.classList.add('google-meet-ripple');
+
+        const ripple = button.getElementsByClassName('google-meet-ripple')[0];
+        if (ripple) {
+            ripple.remove();
+        }
+
+        button.appendChild(circle);
+    }
+
+    function createMeetButton(styles = {}) {
+        const button = document.createElement('button');
+        button.id = CONFIG.buttonId;
+        button.className = 'google-meet-auto-add-button';
+        button.textContent = CONFIG.buttonText;
+        button.type = 'button';
+
+        // Default fallbacks (Standard Google Blue)
+        const defaults = {
+            backgroundColor: '#0b57d0',
+            color: 'white',
+            border: 'none',
+            borderRadius: '100px',
+            padding: '0 24px',
+            fontFamily: "'Google Sans', Roboto, Arial, sans-serif",
+            fontSize: '14px',
+            fontWeight: '500',
+            height: '36px',
+            boxShadow: 'none'
+        };
+
+        const s = { ...defaults, ...styles };
+
+        button.style.cssText = `
+            background-color: ${s.backgroundColor};
+            color: ${s.color};
+            border: ${s.border};
+            border-radius: ${s.borderRadius};
+            padding: ${s.padding};
+            font-family: ${s.fontFamily};
+            font-size: ${s.fontSize};
+            font-weight: ${s.fontWeight};
+            letter-spacing: ${s.letterSpacing || 'normal'};
+            text-transform: ${s.textTransform || 'none'};
+            box-shadow: ${s.boxShadow};
+            cursor: pointer;
+            transition: background-color 0.2s, box-shadow 0.2s; /* Standard transitions */
+            margin: 0 8px;
+            white-space: nowrap;
+            height: ${s.height};
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            position: relative; /* Required for ripple */
+            overflow: hidden;   /* Required for ripple */
+        `;
+
+        // Material Ripple Effect
+        button.addEventListener('mousedown', createRipple);
+
+        button.addEventListener('click', handleMeetButtonClick);
+
+        return button;
+    }
+
     function addMeetButton(dialog) {
         if (dialog.querySelector(`#${CONFIG.buttonId}`)) {
             return false;
@@ -404,17 +501,8 @@
             return false;
         }
 
-        // Capture styles from the visible Save button
-        let computedStyles = {};
-        const style = window.getComputedStyle(saveBtn);
-        computedStyles = {
-            backgroundColor: style.backgroundColor,
-            height: style.height,
-            borderRadius: style.borderRadius,
-            fontFamily: style.fontFamily,
-            fontSize: style.fontSize,
-            fontWeight: style.fontWeight
-        };
+        // Capture styles using robust extractor
+        const computedStyles = getVisualStyles(saveBtn);
         log('Copied styles from visible Save button:', computedStyles);
 
         const button = createMeetButton(computedStyles);

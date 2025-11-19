@@ -15,22 +15,64 @@
     transition: background-color 0.2s ease, box-shadow 0.2s ease;
     margin-left: 8px;
     min-height: 36px;
-    display: inline-flex;
+    /* Force visibility overrides */
+    display: inline-flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    z-index: 999 !important;
     align-items: center;
     justify-content: center;
     text-align: center;
     white-space: nowrap;
     user-select: none;
     outline: none;
-    position: relative;
-    overflow: hidden;
-    z-index: 9999;
-    visibility: visible;
-    opacity: 1;
+    /* Material Design Interaction Props */
+    position: relative !important;
+    overflow: hidden !important;
+    isolation: isolate !important;
+    /* Create stacking context */
     box-sizing: border-box;
     width: auto !important;
     max-width: 200px;
     flex-shrink: 0;
+}
+
+/* Material State Layer (Hover Overlay) */
+.google-meet-auto-add-button::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: currentColor;
+    /* Uses the button's text color (usually white) */
+    opacity: 0;
+    transition: opacity 0.2s linear;
+    pointer-events: none;
+    border-radius: inherit;
+    /* Follows button radius */
+}
+
+.google-meet-auto-add-button:hover::after {
+    opacity: 0.08;
+    /* Standard Material 8% overlay */
+}
+
+.google-meet-auto-add-button:active::after {
+    opacity: 0.12;
+    /* Standard Material 12% overlay */
+}
+
+/* Ripple Effect */
+.google-meet-ripple {
+    position: absolute;
+    border-radius: 50%;
+    background-color: currentColor;
+    opacity: 0.3;
+    transform: scale(0);
+    animation: ripple 0.6s linear;
+    pointer-events: none;
 }
 
 .google-meet-auto-add-button:hover {
