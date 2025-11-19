@@ -708,8 +708,11 @@
             // Step 1: Find and click video conferencing button
             const videoButton = findVideoConferencingButton(dialog);
             if (!videoButton) {
+                debugAlert(`FAILURE: Could not find video conferencing button.\n\nSearched for buttons with text:\n- "add video conferencing"\n- "add google meet video conferencing"`);
                 throw new Error('Could not find video conferencing button');
             }
+
+            debugAlert(`STEP 1: Found video button.\nText: "${videoButton.textContent.trim()}"\nWill click it now...`);
 
             // HEURISTIC: Check if this is a "Direct Add" button
             // If the button text explicitly mentions "Google Meet", it's likely a direct add
@@ -717,11 +720,15 @@
             const buttonText = (videoButton.textContent || '').toLowerCase();
             const isDirectAdd = buttonText.includes('google meet');
 
+            debugAlert(`STEP 2: Button analysis.\nButton text: "${buttonText}"\nIs Direct Add: ${isDirectAdd ? 'YES (skipping menu)' : 'NO (will look for menu)'}`);
+
             // Click immediately
             videoButton.click();
+            log('Clicked video conferencing button');
 
             if (isDirectAdd) {
                 log('Direct "Add Google Meet" button detected - skipping menu search');
+                debugAlert(`STEP 3: Direct Add detected.\nClicked button, waiting for Meet link to appear directly...`);
                 // We expect the link to appear directly.
                 // We fall through to Step 3 (Wait for link)
             } else {
@@ -737,8 +744,11 @@
 
                 if (immediateSuccess) {
                     log('Single provider detected - Meet added immediately');
+                    debugAlert(`STEP 3: Single provider detected!\nMeet link appeared immediately after clicking (within 100ms).`);
                     // Skip the menu logic!
                 } else {
+                    debugAlert(`STEP 3: No immediate add. Looking for dropdown menu with "Google Meet" option...`);
+
                     // Standard Flow: It opened a menu, so we need to find and click "Google Meet"
 
                     // Step 2: Rapidly wait for Google Meet option
@@ -749,8 +759,11 @@
                     );
 
                     if (!meetOption) {
+                        debugAlert(`FAILURE: Could not find "Google Meet" option in menu.\n\nSearched for menu items containing "google meet" in text or aria-label.\n\nWaited ${CONFIG.timing.dropdownTimeout}ms.`);
                         throw new Error('Could not find Google Meet option');
                     }
+
+                    debugAlert(`STEP 4: Found Google Meet option in menu.\nText: "${meetOption.textContent.trim()}"\nClicking it now...`);
 
                     // Click Meet option
                     meetOption.click();
