@@ -715,10 +715,10 @@
             debugAlert(`STEP 1: Found video button.\nText: "${videoButton.textContent.trim()}"\nWill click it now...`);
 
             // HEURISTIC: Check if this is a "Direct Add" button
-            // If the button text explicitly mentions "Google Meet", it's likely a direct add
-            // and will NOT open a dropdown menu.
-            const buttonText = (videoButton.textContent || '').toLowerCase();
-            const isDirectAdd = buttonText.includes('google meet');
+            // NOTE: "Add Google Meet video conferencing" is NOT a direct add - it still opens a flow
+            // Only buttons like "Add Google Meet" (without "video conferencing") are direct adds
+            const buttonText = (videoButton.textContent || '').toLowerCase().trim();
+            const isDirectAdd = buttonText === 'add google meet' || buttonText === 'google meet';
 
             debugAlert(`STEP 2: Button analysis.\nButton text: "${buttonText}"\nIs Direct Add: ${isDirectAdd ? 'YES (skipping menu)' : 'NO (will look for menu)'}`);
 
