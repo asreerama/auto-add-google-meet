@@ -2,11 +2,11 @@
 
 .google-meet-auto-add-button {
     /* Match Google Calendar's button styling */
-    background-color: #1a73e8;
+    background-color: #0b57d0;
     color: white;
     border: none;
-    border-radius: 4px;
-    padding: 8px 16px;
+    border-radius: 100px;
+    padding: 0 24px;
     font-family: 'Google Sans', Roboto, Arial, sans-serif;
     font-size: 14px;
     font-weight: 500;
@@ -34,8 +34,13 @@
 }
 
 .google-meet-auto-add-button:hover {
-    background-color: #1557b0;
+    background-color: #0b57d0;
     box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+}
+
+/* Utility to hide the original Save button */
+.google-cal-save-hidden {
+    display: none !important;
 }
 
 .google-meet-auto-add-button:active {

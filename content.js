@@ -268,82 +268,130 @@
         return null;
     }
 
-    function createMeetButton() {
+    function createMeetButton(styles = {}) {
         const button = document.createElement('button');
         button.id = CONFIG.buttonId;
         button.className = 'google-meet-auto-add-button';
         button.textContent = CONFIG.buttonText;
         button.type = 'button';
 
+        // Use copied styles or defaults
+        const bgColor = styles.backgroundColor || '#0b57d0';
+        const height = styles.height || '36px';
+        const fontFamily = styles.fontFamily || "'Google Sans', Roboto, Arial, sans-serif";
+
         button.style.cssText = `
-            background-color: #1a73e8;
+            background-color: ${bgColor};
             color: white;
             border: none;
-            border-radius: 4px;
-            padding: 8px 16px;
-            font-family: 'Google Sans', Roboto, Arial, sans-serif;
+            border-radius: 100px;
+            padding: 0 24px;
+            font-family: ${fontFamily};
             font-size: 14px;
             font-weight: 500;
             cursor: pointer;
             transition: background-color 0.2s;
             margin: 0 8px;
             white-space: nowrap;
+            height: ${height};
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         `;
 
-        button.addEventListener('mouseenter', () => button.style.backgroundColor = '#1557b0');
-        button.addEventListener('mouseleave', () => button.style.backgroundColor = '#1a73e8');
+        // Hover effect (slightly darken the dynamic color)
+        button.addEventListener('mouseenter', () => {
+            button.style.filter = 'brightness(0.9)';
+        });
+        button.addEventListener('mouseleave', () => {
+            button.style.filter = 'none';
+        });
+
         button.addEventListener('click', handleMeetButtonClick);
 
         return button;
     }
 
-    function addMeetButton(dialog) {
-        // Only add to full edit dialogs (must have Save button)
-        const saveButton = findElementWithFallbacks(SELECTORS.saveButton, dialog);
-        if (!saveButton) {
-            const allButtons = dialog.querySelectorAll('button, div[role="button"]');
-            let foundSave = false;
-            for (const btn of allButtons) {
-                if (btn.textContent.trim() === 'Save') {
-                    foundSave = true;
-                    break;
-                }
-            }
-            if (!foundSave) {
-                log('No Save button - skipping (likely preview card)');
-                return false;
+    function isVisible(element) {
+        return element.offsetParent !== null &&
+            window.getComputedStyle(element).display !== 'none' &&
+            window.getComputedStyle(element).visibility !== 'hidden';
+    }
+
+    function findVisibleSaveButton(dialog) {
+        // Strategy 1: Text content "Save"
+        const allButtons = dialog.querySelectorAll('button, div[role="button"]');
+        for (const button of allButtons) {
+            if (button.textContent.trim() === 'Save' && isVisible(button)) {
+                return button;
             }
         }
 
+        // Strategy 2: Selectors
+        for (const selector of SELECTORS.saveButton) {
+            const buttons = dialog.querySelectorAll(selector);
+            for (const button of buttons) {
+                if (isVisible(button)) {
+                    return button;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    function addMeetButton(dialog) {
         if (dialog.querySelector(`#${CONFIG.buttonId}`)) {
             return false;
         }
 
-        if (isVideoConferencingAlreadyAdded(dialog)) {
-            log('Video conferencing already added');
+        // Find the actual VISIBLE Save button to replace
+        const saveBtn = findVisibleSaveButton(dialog);
+
+        if (!saveBtn) {
+            log('No visible Save button found - skipping');
             return false;
         }
 
-        const button = createMeetButton();
-        const wrapper = document.createElement('div');
-        wrapper.style.cssText = 'display: flex; align-items: center; flex-shrink: 0;';
-        wrapper.appendChild(button);
+        // Capture styles from the visible Save button
+        let computedStyles = {};
+        const style = window.getComputedStyle(saveBtn);
+        computedStyles = {
+            backgroundColor: style.backgroundColor,
+            height: style.height,
+            borderRadius: style.borderRadius,
+            fontFamily: style.fontFamily,
+            fontSize: style.fontSize,
+            fontWeight: style.fontWeight
+        };
+        log('Copied styles from visible Save button:', computedStyles);
 
-        const container = findButtonContainer(dialog);
-        if (!container) {
-            logError('Could not find button container');
-            return false;
-        }
+        const button = createMeetButton(computedStyles);
 
-        const saveBtn = findElementWithFallbacks(SELECTORS.saveButton, dialog);
-        if (saveBtn && container.contains(saveBtn)) {
-            container.insertBefore(wrapper, saveBtn);
-        } else {
-            container.appendChild(wrapper);
-        }
+        // Insert our button BEFORE the save button
+        // We insert directly into the parent to maintain flex layout
+        saveBtn.parentElement.insertBefore(button, saveBtn);
+
+        // Force hide the original Save button
+        const hideSaveButton = () => {
+            saveBtn.classList.add('google-cal-save-hidden');
+            saveBtn.style.display = 'none';
+            saveBtn.style.visibility = 'hidden';
+            saveBtn.setAttribute('aria-hidden', 'true');
+        };
+
+        hideSaveButton();
+
+        // Monitor the Save button to ensure it stays hidden (some frameworks revert styles)
+        const saveObserver = new MutationObserver(() => {
+            if (saveBtn.style.display !== 'none') {
+                hideSaveButton();
+            }
+        });
+        saveObserver.observe(saveBtn, { attributes: true, attributeFilter: ['style', 'class'] });
 
         isButtonAdded = true;
-        logSuccess('Button added successfully');
+        logSuccess('Button added successfully (replaced visible Save)');
         return true;
     }
 
@@ -365,8 +413,18 @@
         }
 
         try {
-            button.textContent = 'Adding Meet...';
+            button.textContent = 'Working...';
             button.disabled = true;
+
+            // Check if video conferencing is ALREADY added
+            if (isVideoConferencingAlreadyAdded(dialog)) {
+                log('Video conferencing already present - just saving');
+                // Just save
+                await clickSaveButton(dialog);
+                return; // Exit after saving
+            }
+
+            button.textContent = 'Adding Meet...';
 
             // Step 1: Find and click video conferencing button
             const videoButton = findVideoConferencingButton(dialog);
@@ -402,33 +460,42 @@
             button.textContent = 'Saving...';
             await waitFor(CONFIG.timing.saveWait);
 
-            let saveButton = findElementWithFallbacks(SELECTORS.saveButton, dialog);
-            if (!saveButton) {
-                const allButtons = dialog.querySelectorAll('button, div[role="button"]');
-                for (const btn of allButtons) {
-                    if (btn.textContent.trim() === 'Save') {
-                        saveButton = btn;
-                        break;
-                    }
+            await clickSaveButton(dialog);
+
+        } catch (error) {
+            logError('Error adding Google Meet:', error);
+            showError(button, error.message);
+        }
+    }
+
+    async function clickSaveButton(dialog) {
+        let saveButton = findElementWithFallbacks(SELECTORS.saveButton, dialog);
+        if (!saveButton) {
+            const allButtons = dialog.querySelectorAll('button, div[role="button"]');
+            for (const btn of allButtons) {
+                if (btn.textContent.trim() === 'Save') {
+                    saveButton = btn;
+                    break;
                 }
             }
+        }
 
-            if (!saveButton) {
-                throw new Error('Could not find Save button');
-            }
+        if (!saveButton) {
+            throw new Error('Could not find Save button');
+        }
 
-            saveButton.click();
-            logSuccess('Event saved with Google Meet');
+        // Ensure it's clickable even if hidden
+        saveButton.click();
+        logSuccess('Event saved');
 
+        // Reset button state (though dialog usually closes)
+        const button = document.getElementById(CONFIG.buttonId);
+        if (button) {
             button.textContent = '✓ Done!';
             setTimeout(() => {
                 button.textContent = CONFIG.buttonText;
                 button.disabled = false;
             }, 1500);
-
-        } catch (error) {
-            logError('Error adding Google Meet:', error);
-            showError(button, error.message);
         }
     }
 
