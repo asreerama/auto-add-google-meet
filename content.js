@@ -10,6 +10,7 @@
 
     const CONFIG = {
         debug: false, // Set to false for production
+        debugAlerts: false, // Disabled for production
         extensionName: 'Google Meet Auto-Add',
         buttonId: 'google-meet-auto-add-btn',
         buttonText: 'Make it a Google Meet',
@@ -731,37 +732,51 @@
                 throw new Error('Could not find video conferencing button');
             }
 
+            // HEURISTIC: Check if this is a "Direct Add" button
+            // If the button text explicitly mentions "Google Meet", it's likely a direct add
+            // and will NOT open a dropdown menu.
+            const buttonText = (videoButton.textContent || '').toLowerCase();
+            const isDirectAdd = buttonText.includes('google meet');
+
             // Click immediately
             videoButton.click();
 
-            // OPTIMISTIC CHECK: Did clicking the button ALREADY add the meeting?
-            // (This happens for accounts with only one provider, e.g. "Add Google Meet video conferencing")
-            const immediateSuccess = await waitForElement(
-                () => isVideoConferencingAlreadyAdded(dialog),
-                200, // Short wait to check for immediate addition
-                10
-            );
-
-            if (immediateSuccess) {
-                log('Single provider detected - Meet added immediately');
-                // Skip the menu logic!
+            if (isDirectAdd) {
+                log('Direct "Add Google Meet" button detected - skipping menu search');
+                // We expect the link to appear directly.
+                // We fall through to Step 3 (Wait for link)
             } else {
-                // Standard Flow: It opened a menu, so we need to find and click "Google Meet"
+                // Generic "Add video conferencing" button.
+                // It MIGHT be a direct add (single provider) OR a menu.
 
-                // Step 2: Rapidly wait for Google Meet option
-                const meetOption = await waitForElement(
-                    () => findGoogleMeetOption(),
-                    CONFIG.timing.dropdownTimeout,
-                    10 // Check every 10ms
+                // OPTIMISTIC CHECK: Did clicking the button ALREADY add the meeting?
+                const immediateSuccess = await waitForElement(
+                    () => isVideoConferencingAlreadyAdded(dialog),
+                    100, // Reduced to 100ms for maximum snappiness
+                    50
                 );
 
-                if (!meetOption) {
-                    throw new Error('Could not find Google Meet option');
-                }
+                if (immediateSuccess) {
+                    log('Single provider detected - Meet added immediately');
+                    // Skip the menu logic!
+                } else {
+                    // Standard Flow: It opened a menu, so we need to find and click "Google Meet"
 
-                // Click Meet option
-                meetOption.click();
-                log('Clicked Google Meet option');
+                    // Step 2: Rapidly wait for Google Meet option
+                    const meetOption = await waitForElement(
+                        () => findGoogleMeetOption(),
+                        CONFIG.timing.dropdownTimeout,
+                        10 // Check every 10ms
+                    );
+
+                    if (!meetOption) {
+                        throw new Error('Could not find Google Meet option');
+                    }
+
+                    // Click Meet option
+                    meetOption.click();
+                    log('Clicked Google Meet option');
+                }
             }
 
             // Step 3: Wait for the Meet link to actually appear (Race condition fix)
@@ -782,6 +797,7 @@
         } catch (error) {
             logError('Error adding Google Meet:', error);
             removeStealthStyles(); // Ensure we clean up on error
+            debugAlert(`CAUGHT ERROR in handleMeetButtonClick:\n\n${error.message}\n\nStack:\n${error.stack}`);
             showError(button, error.message);
         } finally {
             // Cleanup stealth styles (though dialog usually closes)
@@ -789,42 +805,74 @@
         }
     }
 
-    async function clickSaveButton(ignoredDialog) {
-        // CRITICAL FIX: The 'dialog' passed in might be stale (detached from DOM) 
-        // if Google re-rendered the component after adding the Meet link.
-        // We must re-fetch the LIVE dialog from the document.
 
-        const freshDialog = findEventDialog(document.body);
-        if (!freshDialog) {
-            throw new Error('Event dialog lost during process');
+    // ============================================================================
+    // DEBUGGING
+    // ============================================================================
+
+    function debugAlert(message) {
+        if (CONFIG.debugAlerts) {
+            // Use a timeout to ensure it renders after UI updates
+            setTimeout(() => {
+                alert(`[Google Meet Auto-Add DEBUG]\n\n${message}`);
+            }, 10);
+        }
+    }
+
+    async function clickSaveButton(dialog) {
+        // DEBUG: Check dialog state
+        const isDialogConnected = dialog.isConnected;
+        const dialogHTML = dialog.innerHTML.substring(0, 100) + '...';
+
+        if (!isDialogConnected) {
+            debugAlert(`CRITICAL ERROR: The dialog reference is STALE (not connected to DOM).\n\nThis confirms the "Ghost Dialog" theory.\nWe need to re-fetch the dialog.`);
         }
 
-        // Wait for the Save button to be available in the FRESH dialog
-        const saveButton = await waitForElement(
-            () => findVisibleSaveButton(freshDialog),
-            2000, // Wait up to 2 seconds
-            50    // Check every 50ms
-        );
+        let saveButton = findElementWithFallbacks(SELECTORS.saveButton, dialog);
+
+        // Detailed search logging
+        let debugInfo = `Searching for Save button...\nDialog Connected: ${isDialogConnected}\n`;
 
         if (!saveButton) {
-            // Debugging help: Log what we found
-            const allButtons = freshDialog.querySelectorAll('button');
-            logError(`Save button missing. Found ${allButtons.length} other buttons.`);
+            const allButtons = dialog.querySelectorAll('button, div[role="button"]');
+            debugInfo += `Found ${allButtons.length} total buttons in dialog:\n`;
+
+            for (const btn of allButtons) {
+                const text = btn.textContent.trim();
+                const visible = isVisible(btn);
+                debugInfo += `- "${text}" (Visible: ${visible})\n`;
+
+                if (text === 'Save') {
+                    saveButton = btn;
+                    debugInfo += `  -> MATCHED "Save" by text!\n`;
+                    break;
+                }
+            }
+        } else {
+            debugInfo += `Found Save button by selector!\n`;
+        }
+
+        if (!saveButton) {
+            debugAlert(`FAILURE: Could not find Save button.\n\n${debugInfo}`);
             throw new Error('Could not find Save button');
         }
 
-        if (saveButton.disabled) {
-            log('Warning: Save button is disabled');
+        if (!isVisible(saveButton)) {
+            debugAlert(`FAILURE: Found Save button but it is HIDDEN.\n\n${debugInfo}`);
+            // Try clicking anyway?
         }
 
-        // Use robustClick for maximum reliability
-        await robustClick(saveButton);
+        // Ensure it's clickable even if hidden
+        saveButton.click();
         logSuccess('Event saved');
+
+        // debugAlert(`SUCCESS: Clicked Save button!\n\n${debugInfo}`);
 
         // Reset button state
         const button = document.getElementById(CONFIG.buttonId);
         if (button) {
             button.textContent = '✓ Done!';
+            // No timeout needed as dialog closes
         }
     }
 
