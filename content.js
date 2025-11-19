@@ -817,12 +817,141 @@
     // ============================================================================
 
     function debugAlert(message) {
-        if (CONFIG.debugAlerts) {
-            // Use a timeout to ensure it renders after UI updates
-            setTimeout(() => {
-                alert(`[Google Meet Auto-Add DEBUG]\n\n${message}`);
-            }, 10);
-        }
+        if (!CONFIG.debugAlerts) return;
+
+        // Create modal overlay
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Google Sans', Roboto, Arial, sans-serif;
+        `;
+
+        // Create modal content
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+            max-width: 600px;
+            max-height: 80vh;
+            overflow: auto;
+            padding: 0;
+        `;
+
+        // Header
+        const header = document.createElement('div');
+        header.style.cssText = `
+            background: #0b57d0;
+            color: white;
+            padding: 16px 20px;
+            font-weight: 500;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-radius: 8px 8px 0 0;
+        `;
+        header.innerHTML = `
+            <span>🐛 Google Meet Auto-Add DEBUG</span>
+            <button id="debug-close" style="background: transparent; border: none; color: white; font-size: 24px; cursor: pointer; padding: 0; line-height: 1;">×</button>
+        `;
+
+        // Content
+        const content = document.createElement('div');
+        content.style.cssText = `
+            padding: 20px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            color: #202124;
+            max-height: 400px;
+            overflow: auto;
+        `;
+        content.textContent = message;
+
+        // Footer with buttons
+        const footer = document.createElement('div');
+        footer.style.cssText = `
+            padding: 16px 20px;
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            border-top: 1px solid #dadce0;
+        `;
+
+        const copyBtn = document.createElement('button');
+        copyBtn.textContent = '📋 Copy to Clipboard';
+        copyBtn.style.cssText = `
+            background: #0b57d0;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 14px;
+            transition: background 0.2s;
+        `;
+        copyBtn.onmouseover = () => copyBtn.style.background = '#0d47a1';
+        copyBtn.onmouseout = () => copyBtn.style.background = '#0b57d0';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = 'Close';
+        closeBtn.style.cssText = `
+            background: transparent;
+            color: #0b57d0;
+            border: 1px solid #dadce0;
+            padding: 10px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 14px;
+            transition: background 0.2s;
+        `;
+        closeBtn.onmouseover = () => closeBtn.style.background = '#f1f3f4';
+        closeBtn.onmouseout = () => closeBtn.style.background = 'transparent';
+
+        // Event handlers
+        const closeModal = () => overlay.remove();
+
+        copyBtn.onclick = async () => {
+            try {
+                await navigator.clipboard.writeText(message);
+                copyBtn.textContent = '✅ Copied!';
+                setTimeout(() => {
+                    copyBtn.textContent = '📋 Copy to Clipboard';
+                }, 2000);
+            } catch (err) {
+                copyBtn.textContent = '❌ Failed';
+                console.error('Failed to copy:', err);
+            }
+        };
+
+        closeBtn.onclick = closeModal;
+        header.querySelector('#debug-close').onclick = closeModal;
+        overlay.onclick = (e) => {
+            if (e.target === overlay) closeModal();
+        };
+
+        // Assemble modal
+        footer.appendChild(closeBtn);
+        footer.appendChild(copyBtn);
+        modal.appendChild(header);
+        modal.appendChild(content);
+        modal.appendChild(footer);
+        overlay.appendChild(modal);
+
+        // Add to page with slight delay to ensure it renders
+        setTimeout(() => document.body.appendChild(overlay), 10);
     }
 
     async function clickSaveButton(dialog) {
