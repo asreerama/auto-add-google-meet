@@ -80,10 +80,6 @@
     box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
 }
 
-/* Utility to hide the original Save button */
-.google-cal-save-hidden {
-    display: none !important;
-}
 
 .google-meet-auto-add-button:active {
     background-color: #0d47a1;

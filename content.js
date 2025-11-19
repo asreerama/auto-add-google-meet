@@ -507,31 +507,191 @@
 
         const button = createMeetButton(computedStyles);
 
-        // Insert our button BEFORE the save button
+        // Insert our button AFTER the save button (Zoom-like style)
         // We insert directly into the parent to maintain flex layout
-        saveBtn.parentElement.insertBefore(button, saveBtn);
+        if (saveBtn.nextSibling) {
+            saveBtn.parentElement.insertBefore(button, saveBtn.nextSibling);
+        } else {
+            saveBtn.parentElement.appendChild(button);
+        }
 
-        // Force hide the original Save button
-        const hideSaveButton = () => {
-            saveBtn.classList.add('google-cal-save-hidden');
-            saveBtn.style.display = 'none';
-            saveBtn.style.visibility = 'hidden';
-            saveBtn.setAttribute('aria-hidden', 'true');
-        };
-
-        hideSaveButton();
-
-        // Monitor the Save button to ensure it stays hidden (some frameworks revert styles)
-        const saveObserver = new MutationObserver(() => {
-            if (saveBtn.style.display !== 'none') {
-                hideSaveButton();
-            }
-        });
-        saveObserver.observe(saveBtn, { attributes: true, attributeFilter: ['style', 'class'] });
+        // Demote the Save button to Secondary style (match "More options")
+        styleSaveButtonAsSecondary(saveBtn, dialog);
 
         isButtonAdded = true;
-        logSuccess('Button added successfully (replaced visible Save)');
+        logSuccess('Button added successfully (placed after Save)');
         return true;
+    }
+
+    function findMoreOptionsButton(dialog) {
+        const allButtons = dialog.querySelectorAll('button, div[role="button"]');
+        for (const button of allButtons) {
+            if (button.textContent.trim().toLowerCase() === 'more options') {
+                return button;
+            }
+        }
+        return null;
+    }
+
+    function styleSaveButtonAsSecondary(saveBtn, dialog) {
+        const moreOptionsBtn = findMoreOptionsButton(dialog);
+
+        if (moreOptionsBtn) {
+            log('Found "More options" button - copying classes for exact match');
+
+            // STRATEGY: Copy the exact CSS classes from "More options"
+            // This ensures we get the exact same font, color, hover state, ripple, and shape.
+            // Google's framework uses classes like 'VfPpkd-LgbsSe' for styling.
+
+            const targetClass = moreOptionsBtn.className;
+
+            // Use our robust extractor to get the REAL text color (often hidden in a child span)
+            const targetColor = getVisualStyles(moreOptionsBtn).color;
+
+            const applyClasses = () => {
+                // 1. Copy the class (Container style, hover, shape)
+                if (saveBtn.className !== targetClass) {
+                    saveBtn.className = targetClass;
+                    saveBtn.style.cssText = ''; // Clear inline styles to let class win
+                }
+
+                // 2. CRITICAL: Force children to use the correct text color
+                // The original Save button's internal spans have hardcoded white text classes/styles
+                // We must override them to match the "More options" blue color
+                const children = saveBtn.querySelectorAll('*');
+                children.forEach(child => {
+                    // We use the computed color from "More options" to be exact
+                    child.style.setProperty('color', targetColor, 'important');
+                });
+
+                // Also force the button itself just in case
+                saveBtn.style.setProperty('color', targetColor, 'important');
+            };
+
+            applyClasses();
+
+            // PERSISTENCE: Watch for class reversions AND child changes
+            const observer = new MutationObserver((mutations) => {
+                let needsReapply = false;
+                for (const mutation of mutations) {
+                    // Check if class changed
+                    if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                        if (saveBtn.className !== targetClass) {
+                            needsReapply = true;
+                        }
+                    }
+                    // Check if children changed (re-render)
+                    if (mutation.type === 'childList' || mutation.type === 'subtree') {
+                        needsReapply = true;
+                    }
+                }
+                if (needsReapply) {
+                    applyClasses();
+                }
+            });
+
+            observer.observe(saveBtn, {
+                attributes: true,
+                childList: true,
+                subtree: true,
+                attributeFilter: ['class', 'style']
+            });
+
+            return; // Exit early, we are done
+        }
+
+        // FALLBACK: If "More options" is not found, use manual styling (Legacy)
+        log('Could not find "More options" button - using manual fallback styles');
+
+        let secondaryStyles = {
+            backgroundColor: 'transparent',
+            color: '#0b57d0',
+            border: 'none',
+            padding: '0 24px',
+            borderRadius: '4px',
+            fontWeight: '500',
+            boxShadow: 'none',
+            textTransform: 'none',
+            letterSpacing: 'normal',
+            minWidth: 'auto'
+        };
+
+        // The original code had a block here to use getVisualStyles if moreOptionsBtn was found and visible.
+        // Since we now have a dedicated class-copying path for that, this block is removed,
+        // and secondaryStyles remains the default fallback.
+
+        const applyStyles = () => {
+            // We use !important to ensure we override Google's default primary button classes
+            saveBtn.style.setProperty('background-color', secondaryStyles.backgroundColor, 'important');
+            saveBtn.style.setProperty('color', secondaryStyles.color, 'important');
+            saveBtn.style.setProperty('border', secondaryStyles.border, 'important');
+            saveBtn.style.setProperty('padding', secondaryStyles.padding, 'important');
+            saveBtn.style.setProperty('border-radius', secondaryStyles.borderRadius, 'important');
+            saveBtn.style.setProperty('font-weight', secondaryStyles.fontWeight, 'important');
+            saveBtn.style.setProperty('font-size', secondaryStyles.fontSize, 'important');
+            saveBtn.style.setProperty('font-family', secondaryStyles.fontFamily, 'important');
+            saveBtn.style.setProperty('box-shadow', 'none', 'important'); // Force flat
+            saveBtn.style.setProperty('text-transform', secondaryStyles.textTransform, 'important');
+            saveBtn.style.setProperty('letter-spacing', secondaryStyles.letterSpacing, 'important');
+            saveBtn.style.setProperty('min-width', secondaryStyles.minWidth || 'auto', 'important');
+
+            // CRITICAL FIX: Force text color on ALL children (spans, divs)
+            // The original Save button has white text on internal spans that overrides the button color
+            const children = saveBtn.querySelectorAll('*');
+            children.forEach(child => {
+                child.style.setProperty('color', secondaryStyles.color, 'important');
+            });
+        };
+
+        // Apply immediately
+        applyStyles();
+
+        // PERSISTENCE: Google's framework often re-renders buttons, wiping inline styles.
+        // We must watch for changes and re-apply our secondary styling.
+        const observer = new MutationObserver((mutations) => {
+            let needsReapply = false;
+            for (const mutation of mutations) {
+                if (mutation.type === 'attributes' &&
+                    (mutation.attributeName === 'style' || mutation.attributeName === 'class')) {
+                    // Check if our critical styles are missing
+                    if (saveBtn.style.backgroundColor !== secondaryStyles.backgroundColor) {
+                        needsReapply = true;
+                        break;
+                    }
+                }
+                // Also check if children lost their color
+                if (mutation.type === 'childList' || mutation.type === 'subtree') {
+                    needsReapply = true;
+                    break;
+                }
+            }
+            if (needsReapply) {
+                applyStyles();
+            }
+        });
+
+        observer.observe(saveBtn, {
+            attributes: true,
+            childList: true, // Watch for internal re-renders
+            subtree: true,   // Watch deep
+            attributeFilter: ['style', 'class']
+        });
+
+        // Add hover effect for secondary button
+        saveBtn.addEventListener('mouseenter', () => {
+            // If transparent, add a subtle blue tint (standard Google behavior)
+            if (secondaryStyles.backgroundColor === 'transparent' ||
+                secondaryStyles.backgroundColor === 'rgba(0, 0, 0, 0)' ||
+                secondaryStyles.backgroundColor === '') {
+                saveBtn.style.setProperty('background-color', 'rgba(11, 87, 208, 0.04)', 'important');
+            } else {
+                saveBtn.style.filter = 'brightness(0.95)';
+            }
+        });
+        saveBtn.addEventListener('mouseleave', () => {
+            saveBtn.style.setProperty('background-color', secondaryStyles.backgroundColor, 'important');
+            saveBtn.style.filter = 'none';
+        });
     }
 
     // ============================================================================
@@ -574,20 +734,35 @@
             // Click immediately
             videoButton.click();
 
-            // Step 2: Rapidly wait for Google Meet option
-            const meetOption = await waitForElement(
-                () => findGoogleMeetOption(),
-                CONFIG.timing.dropdownTimeout,
-                10 // Check every 10ms
+            // OPTIMISTIC CHECK: Did clicking the button ALREADY add the meeting?
+            // (This happens for accounts with only one provider, e.g. "Add Google Meet video conferencing")
+            const immediateSuccess = await waitForElement(
+                () => isVideoConferencingAlreadyAdded(dialog),
+                200, // Short wait to check for immediate addition
+                10
             );
 
-            if (!meetOption) {
-                throw new Error('Could not find Google Meet option');
-            }
+            if (immediateSuccess) {
+                log('Single provider detected - Meet added immediately');
+                // Skip the menu logic!
+            } else {
+                // Standard Flow: It opened a menu, so we need to find and click "Google Meet"
 
-            // Click Meet option
-            meetOption.click();
-            log('Clicked Google Meet option');
+                // Step 2: Rapidly wait for Google Meet option
+                const meetOption = await waitForElement(
+                    () => findGoogleMeetOption(),
+                    CONFIG.timing.dropdownTimeout,
+                    10 // Check every 10ms
+                );
+
+                if (!meetOption) {
+                    throw new Error('Could not find Google Meet option');
+                }
+
+                // Click Meet option
+                meetOption.click();
+                log('Clicked Google Meet option');
+            }
 
             // Step 3: Wait for the Meet link to actually appear (Race condition fix)
             // We must ensure Google has processed the click before we save
@@ -614,31 +789,42 @@
         }
     }
 
-    async function clickSaveButton(dialog) {
-        let saveButton = findElementWithFallbacks(SELECTORS.saveButton, dialog);
-        if (!saveButton) {
-            const allButtons = dialog.querySelectorAll('button, div[role="button"]');
-            for (const btn of allButtons) {
-                if (btn.textContent.trim() === 'Save') {
-                    saveButton = btn;
-                    break;
-                }
-            }
+    async function clickSaveButton(ignoredDialog) {
+        // CRITICAL FIX: The 'dialog' passed in might be stale (detached from DOM) 
+        // if Google re-rendered the component after adding the Meet link.
+        // We must re-fetch the LIVE dialog from the document.
+
+        const freshDialog = findEventDialog(document.body);
+        if (!freshDialog) {
+            throw new Error('Event dialog lost during process');
         }
 
+        // Wait for the Save button to be available in the FRESH dialog
+        const saveButton = await waitForElement(
+            () => findVisibleSaveButton(freshDialog),
+            2000, // Wait up to 2 seconds
+            50    // Check every 50ms
+        );
+
         if (!saveButton) {
+            // Debugging help: Log what we found
+            const allButtons = freshDialog.querySelectorAll('button');
+            logError(`Save button missing. Found ${allButtons.length} other buttons.`);
             throw new Error('Could not find Save button');
         }
 
-        // Ensure it's clickable even if hidden
-        saveButton.click();
+        if (saveButton.disabled) {
+            log('Warning: Save button is disabled');
+        }
+
+        // Use robustClick for maximum reliability
+        await robustClick(saveButton);
         logSuccess('Event saved');
 
         // Reset button state
         const button = document.getElementById(CONFIG.buttonId);
         if (button) {
             button.textContent = '✓ Done!';
-            // No timeout needed as dialog closes
         }
     }
 
