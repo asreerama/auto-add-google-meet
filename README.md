@@ -1,3 +1,5 @@
+## Everything is this respo is vibe coded.
+
 # Google Meet Auto-Add
 
 **Never forget to add video conferencing to your Google Calendar events again!**
