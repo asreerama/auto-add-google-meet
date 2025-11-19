@@ -272,8 +272,33 @@
                 text === 'add google meet video conferencing' ||
                 ariaLabel === 'add video conferencing' ||
                 ariaLabel === 'add google meet video conferencing') {
+
+                // Found text match. But is THIS element clickable?
+                // Google Calendar often has text in a DIV and click handler on parent
+                let clickableElement = candidate;
+
+                // If this is a DIV without role="button", look for clickable parent
+                if (candidate.tagName === 'DIV' && !candidate.getAttribute('role')) {
+                    log('Found text in plain DIV, searching for clickable parent...');
+
+                    // Search up to 3 parent levels for actual button
+                    let parent = candidate.parentElement;
+                    let levels = 0;
+                    while (parent && levels < 3) {
+                        if (parent.tagName === 'BUTTON' ||
+                            parent.getAttribute('role') === 'button' ||
+                            parent.hasAttribute('jsaction')) {
+                            clickableElement = parent;
+                            log(`Found clickable parent: ${parent.tagName} with role=${parent.getAttribute('role')}`);
+                            break;
+                        }
+                        parent = parent.parentElement;
+                        levels++;
+                    }
+                }
+
                 log('Found video conferencing button');
-                return candidate;
+                return clickableElement;
             }
         }
 
