@@ -1,4 +1,4 @@
-## Everything is this respo is vibe coded.
+## Everything in this repo is vibe coded.
 
 # Google Meet Auto-Add
 

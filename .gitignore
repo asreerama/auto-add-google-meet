@@ -3,3 +3,10 @@
 node_modules/
 .idea/
 .vscode/
+
+# Extension build artifacts
+*.zip
+*.crx
+*.pem
+dist/
+build/

@@ -1,5 +1,30 @@
-// Google Meet Auto-Add Extension
-// Automatically adds Google Meet links to Google Calendar events
+/**
+ * Google Meet Auto-Add Chrome Extension - Content Script
+ * 
+ * Automatically adds Google Meet video conferencing links to Google Calendar events with one click.
+ * 
+ * @version 1.0.0
+ * @author asreerama
+ * @repository https://github.com/asreerama/auto-add-google-meet
+ * @license MIT
+ * 
+ * KEY FEATURES:
+ * - "Chameleon Mode": Dynamically copies styles from native Google Calendar buttons
+ * - "Turbo Mode": Instant execution with hidden dropdown menu (0ms delays)
+ * - "Direct Add Heuristic": Intelligently detects single-provider accounts
+ * - Material Design 3: Native ripple effects and state layers
+ * - Persistent styling with MutationObservers to resist Google's re-renders
+ * 
+ * ARCHITECTURE:
+ * 1. MutationObserver watches for event dialog creation
+ * 2. When dialog detected, injects custom "Make it a Google Meet" button
+ * 3. Button click triggers automated flow: find video button → click → add Meet → save
+ * 4. Native "Save" button is styled as secondary to promote the custom button
+ * 
+ * BROWSER COMPATIBILITY:
+ * - Chrome/Edge (Manifest V3)
+ * - Only runs on calendar.google.com
+ */
 
 (function () {
     'use strict';
@@ -14,6 +39,13 @@
         extensionName: 'Google Meet Auto-Add',
         buttonId: 'google-meet-auto-add-btn',
         buttonText: 'Make it a Google Meet',
+        colors: {
+            // Google Material Design blue palette
+            primary: '#0b57d0',          // Primary blue from Google Calendar
+            primaryHover: 'rgba(11, 87, 208, 0.04)',  // 4% overlay for hover state
+            success: '#137333',          // Green for success state
+            error: '#d93025'             // Red for error state
+        },
         timing: {
             // Timeouts for safety (not fixed waits)
             dropdownTimeout: 1000,
@@ -204,31 +236,6 @@
         });
     }
 
-    // ============================================================================
-    // CLICK UTILITIES
-    // ============================================================================
-
-    async function robustClick(element) {
-        if (!element) return false;
-
-        try {
-            const events = ['mousedown', 'mouseup', 'click'].map(type =>
-                new MouseEvent(type, { bubbles: true, cancelable: true, view: window })
-            );
-
-            element.dispatchEvent(events[0]);
-            await waitFor(50);
-            element.dispatchEvent(events[1]);
-            await waitFor(50);
-            element.dispatchEvent(events[2]);
-
-            log('Clicked element via MouseEvent');
-            return true;
-        } catch (error) {
-            logError('Error in robustClick:', error);
-            return false;
-        }
-    }
 
     // ============================================================================
     // VIDEO CONFERENCING DETECTION
@@ -294,31 +301,6 @@
     // BUTTON MANAGEMENT
     // ============================================================================
 
-    function findButtonContainer(dialog) {
-        // Strategy 1: Find Save button by text
-        const allButtons = dialog.querySelectorAll('button, div[role="button"]');
-        for (const button of allButtons) {
-            if (button.textContent.trim() === 'Save') {
-                return button.parentElement;
-            }
-        }
-
-        // Strategy 2: Find Save button by selector
-        const saveButton = findElementWithFallbacks(SELECTORS.saveButton, dialog);
-        if (saveButton) {
-            return saveButton.parentElement;
-        }
-
-        // Strategy 3: Create container if this is a full dialog
-        if (dialog.getAttribute('role') === 'dialog') {
-            const container = document.createElement('div');
-            container.style.cssText = 'display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; padding: 16px;';
-            dialog.appendChild(container);
-            return container;
-        }
-
-        return null;
-    }
 
     function isVisible(element) {
         return element.offsetParent !== null &&
@@ -443,7 +425,7 @@
 
         // Default fallbacks (Standard Google Blue)
         const defaults = {
-            backgroundColor: '#0b57d0',
+            backgroundColor: CONFIG.colors.primary,
             color: 'white',
             border: 'none',
             borderRadius: '100px',
@@ -606,7 +588,7 @@
 
         let secondaryStyles = {
             backgroundColor: 'transparent',
-            color: '#0b57d0',
+            color: CONFIG.colors.primary,
             border: 'none',
             padding: '0 24px',
             borderRadius: '4px',
@@ -617,9 +599,6 @@
             minWidth: 'auto'
         };
 
-        // The original code had a block here to use getVisualStyles if moreOptionsBtn was found and visible.
-        // Since we now have a dedicated class-copying path for that, this block is removed,
-        // and secondaryStyles remains the default fallback.
 
         const applyStyles = () => {
             // We use !important to ensure we override Google's default primary button classes
@@ -684,7 +663,7 @@
             if (secondaryStyles.backgroundColor === 'transparent' ||
                 secondaryStyles.backgroundColor === 'rgba(0, 0, 0, 0)' ||
                 secondaryStyles.backgroundColor === '') {
-                saveBtn.style.setProperty('background-color', 'rgba(11, 87, 208, 0.04)', 'important');
+                saveBtn.style.setProperty('background-color', CONFIG.colors.primaryHover, 'important');
             } else {
                 saveBtn.style.filter = 'brightness(0.95)';
             }
@@ -820,59 +799,30 @@
     }
 
     async function clickSaveButton(dialog) {
-        // DEBUG: Check dialog state
-        const isDialogConnected = dialog.isConnected;
-        const dialogHTML = dialog.innerHTML.substring(0, 100) + '...';
-
-        if (!isDialogConnected) {
-            debugAlert(`CRITICAL ERROR: The dialog reference is STALE (not connected to DOM).\n\nThis confirms the "Ghost Dialog" theory.\nWe need to re-fetch the dialog.`);
-        }
-
         let saveButton = findElementWithFallbacks(SELECTORS.saveButton, dialog);
-
-        // Detailed search logging
-        let debugInfo = `Searching for Save button...\nDialog Connected: ${isDialogConnected}\n`;
 
         if (!saveButton) {
             const allButtons = dialog.querySelectorAll('button, div[role="button"]');
-            debugInfo += `Found ${allButtons.length} total buttons in dialog:\n`;
-
             for (const btn of allButtons) {
-                const text = btn.textContent.trim();
-                const visible = isVisible(btn);
-                debugInfo += `- "${text}" (Visible: ${visible})\n`;
-
-                if (text === 'Save') {
+                if (btn.textContent.trim() === 'Save') {
                     saveButton = btn;
-                    debugInfo += `  -> MATCHED "Save" by text!\n`;
                     break;
                 }
             }
-        } else {
-            debugInfo += `Found Save button by selector!\n`;
         }
 
         if (!saveButton) {
-            debugAlert(`FAILURE: Could not find Save button.\n\n${debugInfo}`);
             throw new Error('Could not find Save button');
         }
 
-        if (!isVisible(saveButton)) {
-            debugAlert(`FAILURE: Found Save button but it is HIDDEN.\n\n${debugInfo}`);
-            // Try clicking anyway?
-        }
-
-        // Ensure it's clickable even if hidden
+        // Click the save button
         saveButton.click();
         logSuccess('Event saved');
 
-        // debugAlert(`SUCCESS: Clicked Save button!\n\n${debugInfo}`);
-
-        // Reset button state
+        // Update button state to show success
         const button = document.getElementById(CONFIG.buttonId);
         if (button) {
             button.textContent = '✓ Done!';
-            // No timeout needed as dialog closes
         }
     }
 

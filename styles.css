@@ -1,4 +1,17 @@
-/* Google Meet Auto-Add Extension Styles */
+/**
+ * Google Meet Auto-Add Extension - Styles
+ * 
+ * Styles for the custom "Make it a Google Meet" button that integrates seamlessly
+ * with Google Calendar's native UI using Material Design 3 principles.
+ * 
+ * SECTIONS:
+ * - Base button styles (matching Google Calendar's design)
+ * - Material Design interactions (ripple effect, state layers)
+ * - Button states (hover, active, focus, disabled)
+ * - Special states (success, error with animations)
+ * - Responsive design (mobile optimization)
+ * - Dark theme support
+ */
 
 .google-meet-auto-add-button {
     /* Match Google Calendar's button styling */

@@ -1,4 +1,9 @@
-// Popup script for Google Meet Auto-Add extension
+/**
+ * Google Meet Auto-Add Extension - Popup Script
+ * 
+ * Handles the extension popup UI and "Force Check / Debug" button functionality.
+ * Allows users to manually trigger button injection if the automatic detection fails.
+ */
 document.addEventListener('DOMContentLoaded', function () {
     const forceCheckBtn = document.getElementById('force-check-btn');
     const statusDiv = document.getElementById('status');
