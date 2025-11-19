@@ -720,11 +720,48 @@
             const buttonText = (videoButton.textContent || '').toLowerCase();
             const isDirectAdd = buttonText.includes('google meet');
 
-            debugAlert(`STEP 2: Button analysis.\nButton text: "${buttonText}"\nIs Direct Add: ${isDirectAdd ? 'YES (but will verify)' : 'NO (will look for menu)'}`);
+            debugAlert(`STEP 2: Button analysis.\nButton text: "${buttonText}"\nIs Direct Add: ${isDirectAdd ? 'YES (but will verify)' : 'NO (will look for menu)'}\n\nElement info:\n- Tag: ${videoButton.tagName}\n- Disabled: ${videoButton.disabled}\n- Visible: ${videoButton.offsetParent !== null}\n- Role: ${videoButton.getAttribute('role')}`);
 
-            // Click immediately
-            videoButton.click();
-            log('Clicked video conferencing button');
+            // Try multiple click methods to ensure it works
+            debugAlert(`STEP 3: Attempting to click the button...\nTrying multiple click methods for reliability.`);
+
+            let clickSuccess = false;
+
+            // Method 1: Native click
+            try {
+                videoButton.click();
+                clickSuccess = true;
+                log('Clicked video conferencing button (native click)');
+                debugAlert(`✅ Click Method 1 (native): Executed\nWaiting to see if it triggered any action...`);
+            } catch (err) {
+                logError('Native click failed:', err);
+            }
+
+            // Method 2: MouseEvent dispatch (backup)
+            if (!clickSuccess) {
+                try {
+                    const clickEvent = new MouseEvent('click', {
+                        bubbles: true,
+                        cancelable: true,
+                        view: window
+                    });
+                    videoButton.dispatchEvent(clickEvent);
+                    log('Clicked video conferencing button (MouseEvent)');
+                    debugAlert(`✅ Click Method 2 (MouseEvent): Executed\nWaiting to see if it triggered any action...`);
+                } catch (err) {
+                    logError('MouseEvent click failed:', err);
+                }
+            }
+
+            // Method 3: Focus then click
+            try {
+                videoButton.focus();
+                await waitFor(50);
+                videoButton.click();
+                log('Clicked video conferencing button (focus + click)');
+            } catch (err) {
+                logError('Focus + click failed:', err);
+            }
 
             // UNIVERSAL CHECK: Wait a moment to see if Meet link appears OR a menu appears
             // This works for both direct add AND dropdown scenarios
