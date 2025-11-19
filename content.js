@@ -14,9 +14,10 @@
         buttonId: 'google-meet-auto-add-btn',
         buttonText: 'Make it a Google Meet',
         timing: {
-            dropdownWait: 400,    // Wait for dropdown to open
-            retryWait: 200,       // Wait between retries
-            saveWait: 500         // Wait before clicking save
+            // Timeouts for safety (not fixed waits)
+            dropdownTimeout: 1000,
+            retryTimeout: 1000,
+            saveWait: 0 // Instant save
         }
     };
 
@@ -37,6 +38,30 @@
     function logSuccess(message) {
         if (CONFIG.debug) {
             console.log(`[${CONFIG.extensionName}] SUCCESS:`, message);
+        }
+    }
+
+    // ============================================================================
+    // STEALTH MODE UTILITIES
+    // ============================================================================
+
+    function injectStealthStyles() {
+        const style = document.createElement('style');
+        style.id = 'google-meet-stealth-style';
+        style.textContent = `
+            [role="menu"], [role="listbox"] {
+                opacity: 0 !important;
+                pointer-events: none !important;
+                visibility: hidden !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    function removeStealthStyles() {
+        const style = document.getElementById('google-meet-stealth-style');
+        if (style) {
+            style.remove();
         }
     }
 
@@ -150,6 +175,32 @@
 
     function waitFor(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function waitForElement(checkFn, timeout = 1000, interval = 10) {
+        return new Promise((resolve, reject) => {
+            const startTime = Date.now();
+
+            const check = async () => {
+                try {
+                    const result = await checkFn();
+                    if (result) {
+                        resolve(result);
+                        return;
+                    }
+                } catch (e) {
+                    // Ignore errors during check
+                }
+
+                if (Date.now() - startTime > timeout) {
+                    resolve(null); // Resolve null instead of rejecting for cleaner flow control
+                } else {
+                    setTimeout(check, interval);
+                }
+            };
+
+            check();
+        });
     }
 
     // ============================================================================
@@ -419,12 +470,12 @@
             // Check if video conferencing is ALREADY added
             if (isVideoConferencingAlreadyAdded(dialog)) {
                 log('Video conferencing already present - just saving');
-                // Just save
                 await clickSaveButton(dialog);
-                return; // Exit after saving
+                return;
             }
 
-            button.textContent = 'Adding Meet...';
+            // ENABLE STEALTH MODE
+            injectStealthStyles();
 
             // Step 1: Find and click video conferencing button
             const videoButton = findVideoConferencingButton(dialog);
@@ -432,39 +483,46 @@
                 throw new Error('Could not find video conferencing button');
             }
 
-            await robustClick(videoButton);
-            await waitFor(CONFIG.timing.dropdownWait);
+            // Click immediately
+            videoButton.click();
 
-            // Check if we accidentally opened the "Browse rooms" dialog
-            const roomDialog = document.querySelector('[role="dialog"][aria-label*="room"], [role="dialog"][aria-label*="Room"]');
-            if (roomDialog && roomDialog.offsetParent !== null) {
-                throw new Error('Opened wrong dialog (rooms)');
-            }
-
-            // Step 2: Find and click Google Meet option
-            let meetOption = null;
-            for (let i = 0; i < 3; i++) {
-                meetOption = await findGoogleMeetOption();
-                if (meetOption) break;
-                await waitFor(CONFIG.timing.retryWait);
-            }
+            // Step 2: Rapidly wait for Google Meet option
+            const meetOption = await waitForElement(
+                () => findGoogleMeetOption(),
+                CONFIG.timing.dropdownTimeout,
+                10 // Check every 10ms
+            );
 
             if (!meetOption) {
                 throw new Error('Could not find Google Meet option');
             }
 
+            // Click Meet option
             meetOption.click();
             log('Clicked Google Meet option');
 
-            // Step 3: Save the event
-            button.textContent = 'Saving...';
-            await waitFor(CONFIG.timing.saveWait);
+            // Step 3: Wait for the Meet link to actually appear (Race condition fix)
+            // We must ensure Google has processed the click before we save
+            const meetAdded = await waitForElement(
+                () => isVideoConferencingAlreadyAdded(dialog),
+                CONFIG.timing.retryTimeout,
+                10
+            );
 
+            if (!meetAdded) {
+                throw new Error('Google Meet link failed to attach');
+            }
+
+            // Step 4: Save the event
             await clickSaveButton(dialog);
 
         } catch (error) {
             logError('Error adding Google Meet:', error);
+            removeStealthStyles(); // Ensure we clean up on error
             showError(button, error.message);
+        } finally {
+            // Cleanup stealth styles (though dialog usually closes)
+            setTimeout(removeStealthStyles, 100);
         }
     }
 
@@ -488,14 +546,11 @@
         saveButton.click();
         logSuccess('Event saved');
 
-        // Reset button state (though dialog usually closes)
+        // Reset button state
         const button = document.getElementById(CONFIG.buttonId);
         if (button) {
             button.textContent = '✓ Done!';
-            setTimeout(() => {
-                button.textContent = CONFIG.buttonText;
-                button.disabled = false;
-            }, 1500);
+            // No timeout needed as dialog closes
         }
     }
 
