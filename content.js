@@ -760,6 +760,10 @@
 
             // Step 3: Wait for the Meet link to actually appear (Race condition fix)
             // We must ensure Google has processed the click before we save
+
+            // DEBUG: Log what we're looking for
+            debugAlert(`VERIFICATION: Waiting for Google Meet link to attach...\n\nWill check for:\n- Links containing "meet.google.com"\n- Section with data-field="conferenceData"`);
+
             const meetAdded = await waitForElement(
                 () => isVideoConferencingAlreadyAdded(dialog),
                 CONFIG.timing.retryTimeout,
@@ -767,8 +771,31 @@
             );
 
             if (!meetAdded) {
+                // DEBUG: Show what we actually found
+                const allLinks = dialog.querySelectorAll('a[href*="meet.google.com"]');
+                const videoSection = dialog.querySelector('[data-field="conferenceData"]');
+                const videoSectionText = videoSection ? videoSection.textContent : 'NOT FOUND';
+
+                let debugInfo = `FAILURE: Google Meet link did NOT attach after ${CONFIG.timing.retryTimeout}ms\n\n`;
+                debugInfo += `Links found: ${allLinks.length}\n`;
+
+                if (allLinks.length > 0) {
+                    debugInfo += `\nLinks:\n`;
+                    allLinks.forEach((link, i) => {
+                        debugInfo += `${i + 1}. ${link.href}\n`;
+                    });
+                }
+
+                debugInfo += `\nVideo section: ${videoSection ? 'FOUND' : 'NOT FOUND'}\n`;
+                debugInfo += `Video section text: "${videoSectionText}"\n`;
+
+                debugAlert(debugInfo);
+
                 throw new Error('Google Meet link failed to attach');
             }
+
+            // DEBUG: Success
+            debugAlert(`SUCCESS: Google Meet link detected! Proceeding to save...`);
 
             // Step 4: Save the event
             await clickSaveButton(dialog);
