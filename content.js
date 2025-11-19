@@ -715,60 +715,52 @@
             debugAlert(`STEP 1: Found video button.\nText: "${videoButton.textContent.trim()}"\nWill click it now...`);
 
             // HEURISTIC: Check if this is a "Direct Add" button
-            // NOTE: "Add Google Meet video conferencing" is NOT a direct add - it still opens a flow
-            // Only buttons like "Add Google Meet" (without "video conferencing") are direct adds
-            const buttonText = (videoButton.textContent || '').toLowerCase().trim();
-            const isDirectAdd = buttonText === 'add google meet' || buttonText === 'google meet';
+            // If the button text explicitly mentions "Google Meet", it's likely a direct add
+            // and will NOT open a dropdown menu.
+            const buttonText = (videoButton.textContent || '').toLowerCase();
+            const isDirectAdd = buttonText.includes('google meet');
 
-            debugAlert(`STEP 2: Button analysis.\nButton text: "${buttonText}"\nIs Direct Add: ${isDirectAdd ? 'YES (skipping menu)' : 'NO (will look for menu)'}`);
+            debugAlert(`STEP 2: Button analysis.\nButton text: "${buttonText}"\nIs Direct Add: ${isDirectAdd ? 'YES (but will verify)' : 'NO (will look for menu)'}`);
 
             // Click immediately
             videoButton.click();
             log('Clicked video conferencing button');
 
-            if (isDirectAdd) {
-                log('Direct "Add Google Meet" button detected - skipping menu search');
-                debugAlert(`STEP 3: Direct Add detected.\nClicked button, waiting for Meet link to appear directly...`);
-                // We expect the link to appear directly.
-                // We fall through to Step 3 (Wait for link)
-            } else {
-                // Generic "Add video conferencing" button.
-                // It MIGHT be a direct add (single provider) OR a menu.
+            // UNIVERSAL CHECK: Wait a moment to see if Meet link appears OR a menu appears
+            // This works for both direct add AND dropdown scenarios
+            debugAlert(`STEP 3: Clicked button. Waiting 300ms to see what happens...\n(Meet link might appear OR dropdown menu might open)`);
 
-                // OPTIMISTIC CHECK: Did clicking the button ALREADY add the meeting?
-                const immediateSuccess = await waitForElement(
-                    () => isVideoConferencingAlreadyAdded(dialog),
-                    100, // Reduced to 100ms for maximum snappiness
-                    50
+            const immediateSuccess = await waitForElement(
+                () => isVideoConferencingAlreadyAdded(dialog),
+                300, // Wait 300ms to see if link appears directly
+                50
+            );
+
+            if (immediateSuccess) {
+                log('Meet link appeared immediately (direct add or single provider)');
+                debugAlert(`STEP 4: SUCCESS! Meet link appeared immediately.\nSkipping menu search.`);
+                // Skip the menu logic - we're done!
+            } else {
+                // No immediate Meet link. Check if a menu opened instead.
+                debugAlert(`STEP 4: No immediate Meet link. Checking if dropdown menu opened...`);
+
+                // Look for Google Meet option in menu
+                const meetOption = await waitForElement(
+                    () => findGoogleMeetOption(),
+                    CONFIG.timing.dropdownTimeout,
+                    10 // Check every 10ms
                 );
 
-                if (immediateSuccess) {
-                    log('Single provider detected - Meet added immediately');
-                    debugAlert(`STEP 3: Single provider detected!\nMeet link appeared immediately after clicking (within 100ms).`);
-                    // Skip the menu logic!
-                } else {
-                    debugAlert(`STEP 3: No immediate add. Looking for dropdown menu with "Google Meet" option...`);
-
-                    // Standard Flow: It opened a menu, so we need to find and click "Google Meet"
-
-                    // Step 2: Rapidly wait for Google Meet option
-                    const meetOption = await waitForElement(
-                        () => findGoogleMeetOption(),
-                        CONFIG.timing.dropdownTimeout,
-                        10 // Check every 10ms
-                    );
-
-                    if (!meetOption) {
-                        debugAlert(`FAILURE: Could not find "Google Meet" option in menu.\n\nSearched for menu items containing "google meet" in text or aria-label.\n\nWaited ${CONFIG.timing.dropdownTimeout}ms.`);
-                        throw new Error('Could not find Google Meet option');
-                    }
-
-                    debugAlert(`STEP 4: Found Google Meet option in menu.\nText: "${meetOption.textContent.trim()}"\nClicking it now...`);
-
-                    // Click Meet option
-                    meetOption.click();
-                    log('Clicked Google Meet option');
+                if (!meetOption) {
+                    debugAlert(`FAILURE: No Meet link AND no dropdown menu found.\n\nPossibilities:\n1. Click didn't work\n2. Need to wait longer\n3. Google Calendar UI changed\n\nWaited ${CONFIG.timing.dropdownTimeout}ms for menu.`);
+                    throw new Error('Could not find Google Meet option');
                 }
+
+                debugAlert(`STEP 5: Found Google Meet option in dropdown menu!\nText: "${meetOption.textContent.trim()}"\nClicking it now...`);
+
+                // Click Meet option
+                meetOption.click();
+                log('Clicked Google Meet option from menu');
             }
 
             // Step 3: Wait for the Meet link to actually appear (Race condition fix)
