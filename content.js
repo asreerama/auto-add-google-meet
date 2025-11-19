@@ -35,7 +35,7 @@
 
     const CONFIG = {
         debug: false, // Set to false for production
-        debugAlerts: false, // Disabled for production
+        debugAlerts: true, // ENABLED for active debugging phase
         extensionName: 'Google Meet Auto-Add',
         buttonId: 'google-meet-auto-add-btn',
         buttonText: 'Make it a Google Meet',
@@ -794,111 +794,136 @@
             // Use a timeout to ensure it renders after UI updates
             setTimeout(() => {
                 alert(`[Google Meet Auto-Add DEBUG]\n\n${message}`);
-            }, 10);
-        }
-    }
+            }
 
     async function clickSaveButton(dialog) {
-        let saveButton = findElementWithFallbacks(SELECTORS.saveButton, dialog);
+                    // DEBUG: Check dialog state
+                    const isDialogConnected = dialog.isConnected;
+                    const dialogHTML = dialog.innerHTML.substring(0, 100) + '...';
 
-        if (!saveButton) {
-            const allButtons = dialog.querySelectorAll('button, div[role="button"]');
-            for (const btn of allButtons) {
-                if (btn.textContent.trim() === 'Save') {
-                    saveButton = btn;
-                    break;
+                    if (!isDialogConnected) {
+                        debugAlert(`CRITICAL ERROR: The dialog reference is STALE (not connected to DOM).\n\nThis confirms the "Ghost Dialog" theory.\nWe need to re-fetch the dialog.`);
+                    }
+
+                    let saveButton = findElementWithFallbacks(SELECTORS.saveButton, dialog);
+
+                    // Detailed search logging
+                    let debugInfo = `Searching for Save button...\nDialog Connected: ${isDialogConnected}\n`;
+
+                    if (!saveButton) {
+                        const allButtons = dialog.querySelectorAll('button, div[role="button"]');
+                        debugInfo += `Found ${allButtons.length} total buttons in dialog:\n`;
+
+                        for (const btn of allButtons) {
+                            const text = btn.textContent.trim();
+                            const visible = isVisible(btn);
+                            debugInfo += `- "${text}" (Visible: ${visible})\n`;
+
+                            if (text === 'Save') {
+                                saveButton = btn;
+                                debugInfo += `  -> MATCHED "Save" by text!\n`;
+                                break;
+                            }
+                        }
+                    } else {
+                        debugInfo += `Found Save button by selector!\n`;
+                    }
+
+                    if (!saveButton) {
+                        debugAlert(`FAILURE: Could not find Save button.\n\n${debugInfo}`);
+                        throw new Error('Could not find Save button');
+                    }
+
+                    if (!isVisible(saveButton)) {
+                        debugAlert(`WARNING: Found Save button but it is HIDDEN.\n\n${debugInfo}\nAttempting to click anyway...`);
+                    }
+
+                    // Click the save button (works even if hidden)
+                    saveButton.click();
+                    logSuccess('Event saved');
+
+                    // debugAlert(`SUCCESS: Clicked Save button!\n\n${debugInfo}`);
+
+                    // Update button state to show success
+                    const button = document.getElementById(CONFIG.buttonId);
+                    if (button) {
+                        button.textContent = '✓ Done!';
+                    }
                 }
-            }
-        }
-
-        if (!saveButton) {
-            throw new Error('Could not find Save button');
-        }
-
-        // Click the save button
-        saveButton.click();
-        logSuccess('Event saved');
-
-        // Update button state to show success
-        const button = document.getElementById(CONFIG.buttonId);
-        if (button) {
-            button.textContent = '✓ Done!';
-        }
-    }
 
     function showError(button, message) {
-        button.textContent = 'Error';
-        button.title = message;
-        button.disabled = false;
+                    button.textContent = 'Error';
+                    button.title = message;
+                    button.disabled = false;
 
-        setTimeout(() => {
-            button.textContent = CONFIG.buttonText;
-            button.title = '';
-        }, 3000);
-    }
+                    setTimeout(() => {
+                        button.textContent = CONFIG.buttonText;
+                        button.title = '';
+                    }, 3000);
+                }
 
     // ============================================================================
     // OBSERVER
     // ============================================================================
 
     function checkForEventDialog(element) {
-        const dialog = findEventDialog(element);
-        if (dialog && (!isButtonAdded || !dialog.querySelector(`#${CONFIG.buttonId}`))) {
-            addMeetButton(dialog);
-        }
-    }
+                    const dialog = findEventDialog(element);
+                    if (dialog && (!isButtonAdded || !dialog.querySelector(`#${CONFIG.buttonId}`))) {
+                        addMeetButton(dialog);
+                    }
+                }
 
     function startObserver() {
-        if (observer) {
-            observer.disconnect();
-        }
+                    if (observer) {
+                        observer.disconnect();
+                    }
 
-        observer = new MutationObserver((mutations) => {
-            let shouldCheck = false;
-            mutations.forEach((mutation) => {
-                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                    shouldCheck = true;
+                    observer = new MutationObserver((mutations) => {
+                        let shouldCheck = false;
+                        mutations.forEach((mutation) => {
+                            if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                                shouldCheck = true;
+                            }
+                        });
+
+                        if (shouldCheck) {
+                            checkForEventDialog(document.body);
+                        }
+                    });
+
+                    observer.observe(document.body, {
+                        childList: true,
+                        subtree: true
+                    });
+
+                    checkForEventDialog(document.body);
                 }
-            });
-
-            if (shouldCheck) {
-                checkForEventDialog(document.body);
-            }
-        });
-
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true
-        });
-
-        checkForEventDialog(document.body);
-    }
 
     // ============================================================================
     // INITIALIZATION
     // ============================================================================
 
     function init() {
-        if (!window.location.hostname.includes('calendar.google.com')) {
-            return;
-        }
+                    if (!window.location.hostname.includes('calendar.google.com')) {
+                        return;
+                    }
 
-        log('Extension initialized');
-        startObserver();
+                    log('Extension initialized');
+                    startObserver();
 
-        // Listen for dialog close events
-        document.addEventListener('click', (event) => {
-            if (event.target.matches('[aria-label*="Close"], [data-action-id="cancel"]')) {
-                isButtonAdded = false;
-            }
-        });
-    }
+                    // Listen for dialog close events
+                    document.addEventListener('click', (event) => {
+                        if (event.target.matches('[aria-label*="Close"], [data-action-id="cancel"]')) {
+                            isButtonAdded = false;
+                        }
+                    });
+                }
 
     // Start when DOM is ready
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
-    }
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
 
-})();
+        }) ();
