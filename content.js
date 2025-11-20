@@ -35,7 +35,7 @@
 
     const CONFIG = {
         debug: false, // Set to false for production
-        debugAlerts: true, // ENABLED for active debugging phase
+        debugAlerts: false, // Disabled for production
         extensionName: 'Google Meet Auto-Add',
         buttonId: 'google-meet-auto-add-btn',
         buttonText: 'Make it a Google Meet',
@@ -117,6 +117,153 @@
             'li'
         ]
     };
+
+    // ============================================================================
+    // STRATEGY REGISTRY
+    // ============================================================================
+    // Each strategy handles a specific video conferencing UI pattern.
+    // To add support for new patterns, simply add a new strategy object here.
+
+    const STRATEGIES = {
+        /**
+         * Strategy 1: Video conferencing already added
+         * Detect: Meet link already exists in dialog
+         * Execute: Skip video add step, just save
+         */
+        ALREADY_ADDED: {
+            name: 'Already Added',
+            priority: 1, // Highest priority - check first
+            detect: (dialog) => isVideoConferencingAlreadyAdded(dialog),
+            execute: async (dialog) => {
+                log('Video conferencing already present - skipping add step');
+                // No action needed, Meet link already exists
+            }
+        },
+
+        /**
+         * Strategy 2: Direct Add button (single provider)
+         * Detect: Video button text contains "Google Meet"
+         * Execute: Click button → Wait for Meet link
+         */
+        DIRECT_ADD: {
+            name: 'Direct Add (Google Meet Button)',
+            priority: 2,
+            detect: (dialog) => {
+                const videoBtn = findVideoConferencingButton(dialog);
+                if (!videoBtn) return false;
+                const text = (videoBtn.textContent || '').toLowerCase();
+                return text.includes('google meet');
+            },
+            execute: async (dialog) => {
+                const videoBtn = findVideoConferencingButton(dialog);
+                log('Clicking Direct Add button');
+                videoBtn.click();
+
+                // Wait for Meet link to appear
+                const meetAdded = await waitForElement(
+                    () => isVideoConferencingAlreadyAdded(dialog),
+                    CONFIG.timing.retryTimeout,
+                    10
+                );
+
+                if (!meetAdded) {
+                    throw new Error('Google Meet link failed to attach after direct add');
+                }
+            }
+        },
+
+        /**
+         * Strategy 3: Dropdown Menu (generic video button)
+         * Detect: Generic "Add video conferencing" button exists
+         * Execute: Click → Optimistic wait (single provider?) → If not, find Meet in menu → Click
+         */
+        DROPDOWN_MENU: {
+            name: 'Dropdown Menu (Single/Multi Provider)',
+            priority: 3, // Lowest priority - fallback strategy
+            detect: (dialog) => {
+                // Always returns true as fallback if video button exists
+                return findVideoConferencingButton(dialog) !== null;
+            },
+            execute: async (dialog) => {
+                const videoBtn = findVideoConferencingButton(dialog);
+
+                // Enable stealth mode to hide dropdown
+                injectStealthStyles();
+
+                try {
+                    log('Clicking video conferencing button');
+                    videoBtn.click();
+
+                    // OPTIMISTIC CHECK: Single provider account?
+                    // If Meet is added within 100ms, it's a single-provider direct add
+                    const immediateAdd = await waitForElement(
+                        () => isVideoConferencingAlreadyAdded(dialog),
+                        100, // Short wait for single-provider detection
+                        50
+                    );
+
+                    if (immediateAdd) {
+                        log('Single provider detected - Meet added immediately');
+                        return; // Success
+                    }
+
+                    // Not immediate - must be dropdown menu with multiple providers
+                    log('Dropdown menu detected - finding Google Meet option');
+
+                    const meetOption = await waitForElement(
+                        () => findGoogleMeetOption(),
+                        CONFIG.timing.dropdownTimeout,
+                        10
+                    );
+
+                    if (!meetOption) {
+                        throw new Error('Could not find Google Meet option in dropdown');
+                    }
+
+                    meetOption.click();
+                    log('Clicked Google Meet option');
+
+                    // Wait for Meet link to attach
+                    const meetAdded = await waitForElement(
+                        () => isVideoConferencingAlreadyAdded(dialog),
+                        CONFIG.timing.retryTimeout,
+                        10
+                    );
+
+                    if (!meetAdded) {
+                        throw new Error('Google Meet link failed to attach after selection');
+                    }
+
+                } finally {
+                    // Always cleanup stealth styles
+                    removeStealthStyles();
+                }
+            }
+        }
+    };
+
+    /**
+     * Selects the best strategy for the current dialog state
+     * @param {HTMLElement} dialog - The event dialog element
+     * @returns {Object|null} The selected strategy or null if none match
+     */
+    function selectStrategy(dialog) {
+        // Sort strategies by priority (lower number = higher priority)
+        const sortedStrategies = Object.values(STRATEGIES).sort((a, b) => a.priority - b.priority);
+
+        for (const strategy of sortedStrategies) {
+            try {
+                if (strategy.detect(dialog)) {
+                    log(`Selected strategy: ${strategy.name}`);
+                    return strategy;
+                }
+            } catch (error) {
+                logError(`Strategy "${strategy.name}" detection failed:`, error);
+            }
+        }
+
+        return null;
+    }
 
     // ============================================================================
     // STATE
@@ -272,33 +419,8 @@
                 text === 'add google meet video conferencing' ||
                 ariaLabel === 'add video conferencing' ||
                 ariaLabel === 'add google meet video conferencing') {
-
-                // Found text match. But is THIS element clickable?
-                // Google Calendar often has text in a DIV and click handler on parent
-                let clickableElement = candidate;
-
-                // If this is a DIV without role="button", look for clickable parent
-                if (candidate.tagName === 'DIV' && !candidate.getAttribute('role')) {
-                    log('Found text in plain DIV, searching for clickable parent...');
-
-                    // Search up to 3 parent levels for actual button
-                    let parent = candidate.parentElement;
-                    let levels = 0;
-                    while (parent && levels < 3) {
-                        if (parent.tagName === 'BUTTON' ||
-                            parent.getAttribute('role') === 'button' ||
-                            parent.hasAttribute('jsaction')) {
-                            clickableElement = parent;
-                            log(`Found clickable parent: ${parent.tagName} with role=${parent.getAttribute('role')}`);
-                            break;
-                        }
-                        parent = parent.parentElement;
-                        levels++;
-                    }
-                }
-
                 log('Found video conferencing button');
-                return clickableElement;
+                return candidate;
             }
         }
 
@@ -720,151 +842,17 @@
             button.textContent = 'Working...';
             button.disabled = true;
 
-            // Check if video conferencing is ALREADY added
-            if (isVideoConferencingAlreadyAdded(dialog)) {
-                log('Video conferencing already present - just saving');
-                await clickSaveButton(dialog);
-                return;
+            // Select the appropriate strategy for this dialog state
+            const strategy = selectStrategy(dialog);
+
+            if (!strategy) {
+                throw new Error('No compatible video conferencing strategy found for this dialog');
             }
 
-            // ENABLE STEALTH MODE
-            injectStealthStyles();
+            // Execute the selected strategy
+            await strategy.execute(dialog);
 
-            // Step 1: Find and click video conferencing button
-            const videoButton = findVideoConferencingButton(dialog);
-            if (!videoButton) {
-                debugAlert(`FAILURE: Could not find video conferencing button.\n\nSearched for buttons with text:\n- "add video conferencing"\n- "add google meet video conferencing"`);
-                throw new Error('Could not find video conferencing button');
-            }
-
-            debugAlert(`STEP 1: Found video button.\nText: "${videoButton.textContent.trim()}"\nWill click it now...`);
-
-            // HEURISTIC: Check if this is a "Direct Add" button
-            // If the button text explicitly mentions "Google Meet", it's likely a direct add
-            // and will NOT open a dropdown menu.
-            const buttonText = (videoButton.textContent || '').toLowerCase();
-            const isDirectAdd = buttonText.includes('google meet');
-
-            debugAlert(`STEP 2: Button analysis.\nButton text: "${buttonText}"\nIs Direct Add: ${isDirectAdd ? 'YES (but will verify)' : 'NO (will look for menu)'}\n\nElement info:\n- Tag: ${videoButton.tagName}\n- Disabled: ${videoButton.disabled}\n- Visible: ${videoButton.offsetParent !== null}\n- Role: ${videoButton.getAttribute('role')}`);
-
-            // Try multiple click methods to ensure it works
-            debugAlert(`STEP 3: Attempting to click the button...\nTrying multiple click methods for reliability.`);
-
-            let clickSuccess = false;
-
-            // Method 1: Native click
-            try {
-                videoButton.click();
-                clickSuccess = true;
-                log('Clicked video conferencing button (native click)');
-                debugAlert(`✅ Click Method 1 (native): Executed\nWaiting to see if it triggered any action...`);
-            } catch (err) {
-                logError('Native click failed:', err);
-            }
-
-            // Method 2: MouseEvent dispatch (backup)
-            if (!clickSuccess) {
-                try {
-                    const clickEvent = new MouseEvent('click', {
-                        bubbles: true,
-                        cancelable: true,
-                        view: window
-                    });
-                    videoButton.dispatchEvent(clickEvent);
-                    log('Clicked video conferencing button (MouseEvent)');
-                    debugAlert(`✅ Click Method 2 (MouseEvent): Executed\nWaiting to see if it triggered any action...`);
-                } catch (err) {
-                    logError('MouseEvent click failed:', err);
-                }
-            }
-
-            // Method 3: Focus then click
-            try {
-                videoButton.focus();
-                await waitFor(50);
-                videoButton.click();
-                log('Clicked video conferencing button (focus + click)');
-            } catch (err) {
-                logError('Focus + click failed:', err);
-            }
-
-            // UNIVERSAL CHECK: Wait a moment to see if Meet link appears OR a menu appears
-            // This works for both direct add AND dropdown scenarios
-            debugAlert(`STEP 3: Clicked button. Waiting 300ms to see what happens...\n(Meet link might appear OR dropdown menu might open)`);
-
-            const immediateSuccess = await waitForElement(
-                () => isVideoConferencingAlreadyAdded(dialog),
-                300, // Wait 300ms to see if link appears directly
-                50
-            );
-
-            if (immediateSuccess) {
-                log('Meet link appeared immediately (direct add or single provider)');
-                debugAlert(`STEP 4: SUCCESS! Meet link appeared immediately.\nSkipping menu search.`);
-                // Skip the menu logic - we're done!
-            } else {
-                // No immediate Meet link. Check if a menu opened instead.
-                debugAlert(`STEP 4: No immediate Meet link. Checking if dropdown menu opened...`);
-
-                // Look for Google Meet option in menu
-                const meetOption = await waitForElement(
-                    () => findGoogleMeetOption(),
-                    CONFIG.timing.dropdownTimeout,
-                    10 // Check every 10ms
-                );
-
-                if (!meetOption) {
-                    debugAlert(`FAILURE: No Meet link AND no dropdown menu found.\n\nPossibilities:\n1. Click didn't work\n2. Need to wait longer\n3. Google Calendar UI changed\n\nWaited ${CONFIG.timing.dropdownTimeout}ms for menu.`);
-                    throw new Error('Could not find Google Meet option');
-                }
-
-                debugAlert(`STEP 5: Found Google Meet option in dropdown menu!\nText: "${meetOption.textContent.trim()}"\nClicking it now...`);
-
-                // Click Meet option
-                meetOption.click();
-                log('Clicked Google Meet option from menu');
-            }
-
-            // Step 3: Wait for the Meet link to actually appear (Race condition fix)
-            // We must ensure Google has processed the click before we save
-
-            // DEBUG: Log what we're looking for
-            debugAlert(`VERIFICATION: Waiting for Google Meet link to attach...\n\nWill check for:\n- Links containing "meet.google.com"\n- Section with data-field="conferenceData"`);
-
-            const meetAdded = await waitForElement(
-                () => isVideoConferencingAlreadyAdded(dialog),
-                CONFIG.timing.retryTimeout,
-                10
-            );
-
-            if (!meetAdded) {
-                // DEBUG: Show what we actually found
-                const allLinks = dialog.querySelectorAll('a[href*="meet.google.com"]');
-                const videoSection = dialog.querySelector('[data-field="conferenceData"]');
-                const videoSectionText = videoSection ? videoSection.textContent : 'NOT FOUND';
-
-                let debugInfo = `FAILURE: Google Meet link did NOT attach after ${CONFIG.timing.retryTimeout}ms\n\n`;
-                debugInfo += `Links found: ${allLinks.length}\n`;
-
-                if (allLinks.length > 0) {
-                    debugInfo += `\nLinks:\n`;
-                    allLinks.forEach((link, i) => {
-                        debugInfo += `${i + 1}. ${link.href}\n`;
-                    });
-                }
-
-                debugInfo += `\nVideo section: ${videoSection ? 'FOUND' : 'NOT FOUND'}\n`;
-                debugInfo += `Video section text: "${videoSectionText}"\n`;
-
-                debugAlert(debugInfo);
-
-                throw new Error('Google Meet link failed to attach');
-            }
-
-            // DEBUG: Success
-            debugAlert(`SUCCESS: Google Meet link detected! Proceeding to save...`);
-
-            // Step 4: Save the event
+            // Save the event
             await clickSaveButton(dialog);
 
         } catch (error) {
@@ -884,190 +872,34 @@
     // ============================================================================
 
     function debugAlert(message) {
-        if (!CONFIG.debugAlerts) return;
-
-        // Create modal overlay
-        const overlay = document.createElement('div');
-        overlay.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            z-index: 999999;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-family: 'Google Sans', Roboto, Arial, sans-serif;
-        `;
-
-        // Create modal content
-        const modal = document.createElement('div');
-        modal.style.cssText = `
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
-            max-width: 600px;
-            max-height: 80vh;
-            overflow: auto;
-            padding: 0;
-        `;
-
-        // Header
-        const header = document.createElement('div');
-        header.style.cssText = `
-            background: #0b57d0;
-            color: white;
-            padding: 16px 20px;
-            font-weight: 500;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-radius: 8px 8px 0 0;
-        `;
-        header.innerHTML = `
-            <span>🐛 Google Meet Auto-Add DEBUG</span>
-            <button id="debug-close" style="background: transparent; border: none; color: white; font-size: 24px; cursor: pointer; padding: 0; line-height: 1;">×</button>
-        `;
-
-        // Content
-        const content = document.createElement('div');
-        content.style.cssText = `
-            padding: 20px;
-            white-space: pre-wrap;
-            font-family: 'Courier New', monospace;
-            font-size: 13px;
-            line-height: 1.5;
-            color: #202124;
-            max-height: 400px;
-            overflow: auto;
-        `;
-        content.textContent = message;
-
-        // Footer with buttons
-        const footer = document.createElement('div');
-        footer.style.cssText = `
-            padding: 16px 20px;
-            display: flex;
-            gap: 12px;
-            justify-content: flex-end;
-            border-top: 1px solid #dadce0;
-        `;
-
-        const copyBtn = document.createElement('button');
-        copyBtn.textContent = '📋 Copy to Clipboard';
-        copyBtn.style.cssText = `
-            background: #0b57d0;
-            color: white;
-            border: none;
-            padding: 10px 24px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: 500;
-            font-size: 14px;
-            transition: background 0.2s;
-        `;
-        copyBtn.onmouseover = () => copyBtn.style.background = '#0d47a1';
-        copyBtn.onmouseout = () => copyBtn.style.background = '#0b57d0';
-
-        const closeBtn = document.createElement('button');
-        closeBtn.textContent = 'Close';
-        closeBtn.style.cssText = `
-            background: transparent;
-            color: #0b57d0;
-            border: 1px solid #dadce0;
-            padding: 10px 24px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: 500;
-            font-size: 14px;
-            transition: background 0.2s;
-        `;
-        closeBtn.onmouseover = () => closeBtn.style.background = '#f1f3f4';
-        closeBtn.onmouseout = () => closeBtn.style.background = 'transparent';
-
-        // Event handlers
-        const closeModal = () => overlay.remove();
-
-        copyBtn.onclick = async () => {
-            try {
-                await navigator.clipboard.writeText(message);
-                copyBtn.textContent = '✅ Copied!';
-                setTimeout(() => {
-                    copyBtn.textContent = '📋 Copy to Clipboard';
-                }, 2000);
-            } catch (err) {
-                copyBtn.textContent = '❌ Failed';
-                console.error('Failed to copy:', err);
-            }
-        };
-
-        closeBtn.onclick = closeModal;
-        header.querySelector('#debug-close').onclick = closeModal;
-        overlay.onclick = (e) => {
-            if (e.target === overlay) closeModal();
-        };
-
-        // Assemble modal
-        footer.appendChild(closeBtn);
-        footer.appendChild(copyBtn);
-        modal.appendChild(header);
-        modal.appendChild(content);
-        modal.appendChild(footer);
-        overlay.appendChild(modal);
-
-        // Add to page with slight delay to ensure it renders
-        setTimeout(() => document.body.appendChild(overlay), 10);
+        if (CONFIG.debugAlerts) {
+            // Use a timeout to ensure it renders after UI updates
+            setTimeout(() => {
+                alert(`[Google Meet Auto-Add DEBUG]\n\n${message}`);
+            }, 10);
+        }
     }
 
     async function clickSaveButton(dialog) {
-        // DEBUG: Check dialog state
-        const isDialogConnected = dialog.isConnected;
-        const dialogHTML = dialog.innerHTML.substring(0, 100) + '...';
-
-        if (!isDialogConnected) {
-            debugAlert(`CRITICAL ERROR: The dialog reference is STALE (not connected to DOM).\n\nThis confirms the "Ghost Dialog" theory.\nWe need to re-fetch the dialog.`);
-        }
-
         let saveButton = findElementWithFallbacks(SELECTORS.saveButton, dialog);
-
-        // Detailed search logging
-        let debugInfo = `Searching for Save button...\nDialog Connected: ${isDialogConnected}\n`;
 
         if (!saveButton) {
             const allButtons = dialog.querySelectorAll('button, div[role="button"]');
-            debugInfo += `Found ${allButtons.length} total buttons in dialog:\n`;
-
             for (const btn of allButtons) {
-                const text = btn.textContent.trim();
-                const visible = isVisible(btn);
-                debugInfo += `- "${text}" (Visible: ${visible})\n`;
-
-                if (text === 'Save') {
+                if (btn.textContent.trim() === 'Save') {
                     saveButton = btn;
-                    debugInfo += `  -> MATCHED "Save" by text!\n`;
                     break;
                 }
             }
-        } else {
-            debugInfo += `Found Save button by selector!\n`;
         }
 
         if (!saveButton) {
-            debugAlert(`FAILURE: Could not find Save button.\n\n${debugInfo}`);
             throw new Error('Could not find Save button');
         }
 
-        if (!isVisible(saveButton)) {
-            debugAlert(`WARNING: Found Save button but it is HIDDEN.\n\n${debugInfo}\nAttempting to click anyway...`);
-        }
-
-        // Click the save button (works even if hidden)
+        // Click the save button
         saveButton.click();
         logSuccess('Event saved');
-
-        // debugAlert(`SUCCESS: Clicked Save button!\n\n${debugInfo}`);
 
         // Update button state to show success
         const button = document.getElementById(CONFIG.buttonId);
