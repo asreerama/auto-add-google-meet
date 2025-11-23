@@ -49,7 +49,7 @@
         timing: {
             // Timeouts for safety (not fixed waits)
             dropdownTimeout: 1000,
-            retryTimeout: 1000,
+            retryTimeout: 3000, // Increased to 3s for slower connections
             saveWait: 0 // Instant save
         }
     };
@@ -119,6 +119,91 @@
     };
 
     // ============================================================================
+    // EVENT SIMULATION
+    // ============================================================================
+
+    function simulateClick(element) {
+        if (!element) return;
+
+        log('Simulating robust interaction on:', element);
+
+        // 1. Check what's actually at the coordinates (Is it covered?)
+        const rect = element.getBoundingClientRect();
+        const x = rect.left + (rect.width / 2);
+        const y = rect.top + (rect.height / 2);
+        const topElement = document.elementFromPoint(x, y);
+        
+        if (topElement && topElement !== element && !element.contains(topElement)) {
+            log('⚠️ Warning: Element appears covered by:', topElement);
+            // If covered, try clicking the covering element instead
+            log('Clicking the covering element instead...');
+            topElement.click();
+            return; 
+        }
+
+        // 2. Focus (Crucial for keyboard events)
+        if (element.focus) element.focus();
+
+        // 3. Keyboard Events (Enter & Space) - The "Nuclear" Option for Accessibility
+        ['Enter', ' '].forEach(key => {
+            ['keydown', 'keypress', 'keyup'].forEach(type => {
+                element.dispatchEvent(new KeyboardEvent(type, {
+                    key: key,
+                    code: key === 'Enter' ? 'Enter' : 'Space',
+                    keyCode: key === 'Enter' ? 13 : 32,
+                    bubbles: true,
+                    cancelable: true,
+                    view: window
+                }));
+            });
+        });
+
+        // 4. Mouse Events with Coordinates
+        const mouseEvents = ['mouseover', 'mousedown', 'mouseup', 'click'];
+        mouseEvents.forEach(type => {
+            element.dispatchEvent(new MouseEvent(type, {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                buttons: 1,
+                clientX: x,
+                clientY: y
+            }));
+        });
+        
+        // 5. Native Click
+        element.click();
+
+        // 6. Deep Tree Walk (Ancestor Clicking)
+        // Only do this if we are fairly shallow to avoid clicking the whole dialog
+        let parent = element.parentElement;
+        let depth = 0;
+        while (parent && depth < 4 && parent.tagName !== 'BODY') {
+            const tag = parent.tagName;
+            const role = parent.getAttribute('role');
+            // Click if it looks interactive
+            if (tag === 'BUTTON' || role === 'button' || parent.classList.contains('VfPpkd-LgbsSe')) {
+                log(`Clicking ancestor (depth ${depth}):`, parent);
+                parent.click();
+            }
+            parent = parent.parentElement;
+            depth++;
+        }
+
+        // 7. CLUSTER BOMB: Click all children
+        // Sometimes the listener is on a specific span/div INSIDE the detected container
+        const children = element.querySelectorAll('*');
+        if (children.length < 50) { // Safety limit
+            log(`Cluster bombing ${children.length} children...`);
+            children.forEach(child => {
+                child.click();
+                child.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, buttons: 1 }));
+                child.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            });
+        }
+    }
+
+    // ============================================================================
     // STRATEGY REGISTRY
     // ============================================================================
     // Each strategy handles a specific video conferencing UI pattern.
@@ -156,8 +241,17 @@
             },
             execute: async (dialog) => {
                 const videoBtn = findVideoConferencingButton(dialog);
+                
+                // DEBUG: Visual confirmation
+                if (CONFIG.debug) {
+                    videoBtn.style.cssText += 'border: 3px solid #f00 !important; background-color: rgba(255, 255, 0, 0.3) !important;';
+                    await waitFor(500); 
+                }
+
                 log('Clicking Direct Add button');
-                videoBtn.click();
+                
+                // Use robust click simulation
+                simulateClick(videoBtn);
 
                 // Wait for Meet link to appear
                 const meetAdded = await waitForElement(
@@ -167,7 +261,12 @@
                 );
 
                 if (!meetAdded) {
-                    throw new Error('Google Meet link failed to attach after direct add');
+                    // DEBUG: Capture state to diagnose why we can't see the change
+                    const buttons = Array.from(dialog.querySelectorAll('button, div[role="button"]'))
+                        .map(b => `"${b.textContent}" (label: ${b.getAttribute('aria-label')})`)
+                        .join('\n');
+                        
+                    throw new Error(`Google Meet link failed to attach after direct add.\n\nVisible Buttons:\n${buttons}`);
                 }
             }
         },
@@ -315,7 +414,7 @@
 
     function findElementWithFallbacks(selectors, context = document) {
         if (typeof selectors === 'string') selectors = [selectors];
-
+        
         for (const selector of selectors) {
             try {
                 const element = context.querySelector(selector);
@@ -389,6 +488,7 @@
     // ============================================================================
 
     function isVideoConferencingAlreadyAdded(dialog) {
+        // 1. Check for standard Meet links
         const meetLinks = dialog.querySelectorAll('[href*="meet.google.com"]');
         for (const link of meetLinks) {
             const href = link.getAttribute('href');
@@ -397,6 +497,18 @@
             }
         }
 
+        // 2. Check for "Join with Google Meet" button (common in creation dialogs)
+        const buttons = dialog.querySelectorAll('button, div[role="button"], a');
+        for (const btn of buttons) {
+            const text = (btn.textContent || '').toLowerCase();
+            const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+            if ((text.includes('join with google meet') || label.includes('join with google meet')) &&
+                !text.includes('add') && !label.includes('add')) { // Ensure it's not the "Add" button
+                return true;
+            }
+        }
+
+        // 3. Check for conference data field
         const videoSection = dialog.querySelector('[data-field="conferenceData"]');
         if (videoSection) {
             const text = videoSection.textContent.toLowerCase();
@@ -612,9 +724,9 @@
 
         // Material Ripple Effect
         button.addEventListener('mousedown', createRipple);
-
+        
         button.addEventListener('click', handleMeetButtonClick);
-
+        
         return button;
     }
 
@@ -829,10 +941,10 @@
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-
+        
         const button = event.target;
         const dialog = button.closest('[role="dialog"]') || button.closest('.VfPpkd-dgl2Hf-ppHlrf-sM5MNb');
-
+        
         if (!dialog) {
             showError(button, 'Could not find event dialog');
             return;
@@ -874,7 +986,7 @@
     function debugAlert(message) {
         if (CONFIG.debugAlerts) {
             // Use a timeout to ensure it renders after UI updates
-            setTimeout(() => {
+                    setTimeout(() => {
                 alert(`[Google Meet Auto-Add DEBUG]\n\n${message}`);
             }, 10);
         }
@@ -912,7 +1024,7 @@
         button.textContent = 'Error';
         button.title = message;
         button.disabled = false;
-
+        
         setTimeout(() => {
             button.textContent = CONFIG.buttonText;
             button.title = '';
@@ -968,9 +1080,9 @@
         log('Extension initialized');
         startObserver();
 
-        // Listen for dialog close events
-        document.addEventListener('click', (event) => {
-            if (event.target.matches('[aria-label*="Close"], [data-action-id="cancel"]')) {
+    // Listen for dialog close events
+    document.addEventListener('click', (event) => {
+        if (event.target.matches('[aria-label*="Close"], [data-action-id="cancel"]')) {
                 isButtonAdded = false;
             }
         });
