@@ -82,7 +82,10 @@
         const style = document.createElement('style');
         style.id = 'google-meet-stealth-style';
         style.textContent = `
-            [role="menu"], [role="listbox"] {
+            /* Scoped stealth: Only hide top-level menus/listboxes appended to body */
+            body > [role="menu"], 
+            body > [role="listbox"], 
+            body > .VfPpkd-xl07Ob {
                 opacity: 0 !important;
                 pointer-events: none !important;
                 visibility: hidden !important;
@@ -196,6 +199,14 @@
         if (children.length < 50) { // Safety limit
             log(`Cluster bombing ${children.length} children...`);
             children.forEach(child => {
+                // SAFETY CHECK: Do not click destructive or cancel actions
+                const text = (child.textContent || '').toLowerCase();
+                const label = (child.getAttribute('aria-label') || '').toLowerCase();
+                if (text.includes('delete') || text.includes('cancel') || text.includes('discard') || text.includes('remove') ||
+                    label.includes('delete') || label.includes('cancel') || label.includes('discard') || label.includes('remove')) {
+                    return;
+                }
+
                 child.click();
                 child.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, buttons: 1 }));
                 child.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
@@ -1080,11 +1091,18 @@
         log('Extension initialized');
         startObserver();
 
-    // Listen for dialog close events
-    document.addEventListener('click', (event) => {
-        if (event.target.matches('[aria-label*="Close"], [data-action-id="cancel"]')) {
+        // Listen for dialog close events (click X or Cancel)
+        document.addEventListener('click', (event) => {
+            if (event.target.matches('[aria-label*="Close"], [data-action-id="cancel"]')) {
                 isButtonAdded = false;
             }
+        });
+        
+        // Reset state on history navigation (SPA back/forward)
+        window.addEventListener('popstate', () => {
+            isButtonAdded = false;
+            // Re-check immediately in case we navigated back to an open dialog
+            setTimeout(() => checkForEventDialog(document.body), 500);
         });
     }
 
