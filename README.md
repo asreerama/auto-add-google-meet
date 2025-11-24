@@ -52,7 +52,7 @@ This extension:
 
 If you encounter any issues or have suggestions:
 - Report bugs via [GitHub Issues](#)
-- Check the extension popup for the "Force Check / Debug" button if the button doesn't appear
+- Report bugs via [GitHub Issues](#)
 
 ## License
 

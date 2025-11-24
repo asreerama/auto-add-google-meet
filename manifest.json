@@ -1,15 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Google Meet Auto-Add",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Automatically add Google Meet conferencing to Calendar events with one click. Never forget a meeting link again!",
   "author": "asreerama",
   "homepage_url": "https://github.com/asreerama/auto-add-google-meet",
-  "permissions": [
-    "activeTab",
-    "tabs",
-    "scripting"
-  ],
+  "permissions": [],
   "host_permissions": [
     "https://calendar.google.com/*"
   ],
