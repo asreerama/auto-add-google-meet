@@ -18,7 +18,7 @@ A Chrome extension that adds a convenient "Make it a Google Meet" button to Goog
 
 ### From Chrome Web Store (Recommended)
 
-1. Visit the [Chrome Web Store listing](#) (link coming soon)
+1. Visit the [Chrome Web Store listing](https://chromewebstore.google.com/detail/cocoohiblkpjekkgadjalmcfchnnelno?utm_source=item-share-cb)
 2. Click "Add to Chrome"
 3. Confirm the installation
 
